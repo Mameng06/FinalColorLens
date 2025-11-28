@@ -7,6 +7,7 @@ import {
   ScrollView,
   Dimensions,
   PixelRatio,
+  Image,
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { styles } from './WelcomeScreen.styles';
@@ -34,89 +35,68 @@ const WelcomeScreen: React.FC<WelcomeScreenProps> = ({ onNext }) => {
     };
   }, [scale]);
 
+  const featureList = [
+    {
+      title: 'Real-Time Identification',
+      description: 'Use your camera or upload an image to detect colors on the spot.',
+      symbol: '📷',
+    },
+    {
+      title: 'Speak and See',
+      description: 'Hear the color name aloud and view the HEX code instantly.',
+      symbol: '🔊',
+    },
+    {
+      title: 'Color Families',
+      description: 'Discover related shades and never lose context.',
+      symbol: '🎨',
+    },
+  ];
+
   return (
     <SafeAreaView style={styles.container}>
-      <StatusBar barStyle="dark-content" backgroundColor="#FFFFFF" />
-
-      <ScrollView
-        contentContainerStyle={{
-          flexGrow: 1,
-          justifyContent: 'center',
-          paddingHorizontal: Math.max(20, Math.min(40, Math.round(width * 0.08))),
-          paddingTop: 20,
-          paddingBottom: 12,
-        }}
-      >
-        <View style={styles.content}>
-          <Text
-            style={[
-              styles.title,
-              { fontSize: scaled.titleSize, marginBottom: scaled.titleMargin },
-            ]}
-          >
-            Welcome
-          </Text>
-
-          <View style={styles.descriptionContainer}>
-            <Text
-              style={[
-                styles.description,
-                { fontSize: scaled.descSize, lineHeight: scaled.descLineHeight },
-              ]}
-            >
-              Welcome to ColorLens — your AI-based color recognition and voice feedback assistant.
-            </Text>
-
-            <Text
-              style={[
-                styles.description,
-                { marginTop: 10, fontSize: scaled.descSize, lineHeight: scaled.descLineHeight },
-              ]}
-            >
-              Use your camera in real time or upload an image. ColorLens helps you identify colors, hear their names spoken aloud, and see hex codes and color families.
-            </Text>
-
-            <Text
-              style={[
-                styles.description,
-                { marginTop: 10, fontSize: scaled.descSize, lineHeight: scaled.descLineHeight },
-              ]}
-            >
-              Perfect for people with color vision difficiency.
-            </Text>
-
-            <Text
-              style={[
-                styles.description,
-                { marginTop: 10, fontSize: scaled.descSize, lineHeight: scaled.descLineHeight, fontWeight: '600' },
-              ]}
-            >
-              Fast, intuitive, and inclusive.
-            </Text>
-
-            <Text style={[styles.connectedText, { marginTop: 12 }]}>— ColorLens makes color recognition easy for everyone.</Text>
+      <StatusBar barStyle="light-content" backgroundColor="#070D0D" />
+      <ScrollView contentContainerStyle={styles.scrollContent}>
+        <View style={styles.heroCard}>
+          <View style={styles.heroIconWrapper}>
+            <Image source={require('../../img/CLogo.png')} style={styles.heroLogo} />
           </View>
+          <Text style={styles.heroTitle}>ColorLens</Text>
+          <Text style={styles.heroSubtitle}>
+            Welcome to ColorLens. Your AI assistant for instant color recognition and voice feedback.
+          </Text>
+        </View>
+
+        <View style={styles.featureCard}>
+          <Text style={[styles.sectionTitle, { fontSize: scaled.titleSize * 0.65 }]}>What it Does</Text>
+          {featureList.map((item) => (
+            <View key={item.title} style={styles.featureRow}>
+              <View style={styles.featureIcon}>
+                <Text style={styles.featureSymbol}>{item.symbol}</Text>
+              </View>
+              <View style={{ flex: 1 }}>
+                <Text style={styles.featureTitle}>{item.title}</Text>
+                <Text style={styles.featureDescription}>{item.description}</Text>
+              </View>
+            </View>
+          ))}
+          <TouchableOpacity
+            style={[
+              styles.nextButton,
+              {
+                paddingVertical: scaled.buttonPaddingVertical,
+                paddingHorizontal: scaled.buttonPaddingHorizontal,
+                borderRadius: Math.max(24, Math.round(28 * scale)),
+              },
+            ]}
+            onPress={onNext}
+            activeOpacity={0.9}
+          >
+            <Text style={styles.nextButtonText}>Start Exploring</Text>
+            <Text style={styles.arrow}>→</Text>
+          </TouchableOpacity>
         </View>
       </ScrollView>
-
-      <View style={[styles.buttonContainer, { paddingHorizontal: Math.max(20, Math.round(width * 0.06)), paddingBottom: 24 }]}> 
-        <TouchableOpacity
-          style={[
-            styles.nextButton,
-            {
-              paddingVertical: scaled.buttonPaddingVertical,
-              paddingHorizontal: scaled.buttonPaddingHorizontal,
-              borderRadius: Math.max(20, Math.round(25 * scale)),
-            },
-          ]}
-          onPress={onNext}
-          activeOpacity={0.8}
-          hitSlop={{ top: 10, bottom: 10, left: 10, right: 10 }}
-        >
-          <Text style={styles.nextButtonText}>Next</Text>
-          <Text style={styles.arrow}>→</Text>
-        </TouchableOpacity>
-      </View>
     </SafeAreaView>
   );
 };

@@ -12,7 +12,7 @@ let captureRef: any = null;
 try { captureRef = require('react-native-view-shot').captureRef; } catch (_e) { captureRef = null; }
 import { ICONS } from '../../Images';
 import { styles, REFERENCE_BOX_DEFAULT_SIZE, REFERENCE_BOX_MIN_SIZE, REFERENCE_BOX_MAX_SIZE, PIXELS_PER_INCH, rf } from './ColorDetector.styles';
-import { getFallbackColor, getJpegUtils, getJpegOrientation, decodeJpegAndSampleCenter as _decodeCenter, decodeJpegAndSampleAt as _decodeAt, hexToRgb, rgbToHex, processWithIndicator, mapPressToPreviewCoords, mapLocalPressToPreviewCoords, isWhiteSurface, isTooDark, getWhiteSurfaceStatus, medianRgb, computeSimpleWhiteGains, setCalibratedGains, getCalibratedGains, applySimpleWhiteBalanceCorrection, fractionWhiteInSamples } from './ColorDetectorLogic';
+import { getFallbackColor, getJpegUtils, getJpegOrientation, decodeJpegAndSampleCenter as _decodeCenter, decodeJpegAndSampleAt as _decodeAt, hexToRgb, rgbToHex, processWithIndicator, mapPressToPreviewCoords, mapLocalPressToPreviewCoords, isWhiteSurface, getWhiteSurfaceStatus, medianRgb, computeSimpleWhiteGains, setCalibratedGains, getCalibratedGains, applySimpleWhiteBalanceCorrection, fractionWhiteInSamples } from './ColorDetectorLogic';
 import { findClosestColor } from '../../services/ColorMatcher';
 import { findClosestColorAsync } from '../../services/ColorMatcherWorker';
 import { inferColorFromRGB } from '../../services/ColorDetectorInference';
@@ -95,7 +95,6 @@ const ColorDetector: React.FC<ColorDetectorProps> = ({ onBack, openSettings, voi
   const LEFT_WHITE_REQUIRED = 3; // need at least 3 of last 5 frames
 
   // Debug overlay state
-  const [debugVisible, setDebugVisible] = useState<boolean>(false);
   const [debugLeftMedian, setDebugLeftMedian] = useState<{r:number;g:number;b:number}|null>(null);
   const [debugLeftFraction, setDebugLeftFraction] = useState<number|null>(null);
   const [debugGains, setDebugGains] = useState<{gr:number;gg:number;gb:number}|null>(null);
@@ -577,8 +576,20 @@ const ColorDetector: React.FC<ColorDetectorProps> = ({ onBack, openSettings, voi
   const stopDetection = () => { if (intervalRef.current) clearInterval(intervalRef.current); intervalRef.current = null; };
 
   const toggleFreeze = () => {
-    const next = !freeze; setFreeze(next); freezeRef.current = next; if (next) suppressSpeechRef.current = true;
-    if (!next) { setCrosshairPos(null); setFrozenSnapshot(null); frozenImageUriRef.current = null; setSelectedImageUri(null); }
+    const next = !freeze;
+    setFreeze(next);
+    freezeRef.current = next;
+    suppressSpeechRef.current = next;
+    if (!next) {
+      setFrozenSnapshot(null);
+      frozenImageUriRef.current = null;
+      setSelectedImageUri(null);
+      if (previewSize) {
+        setCrosshairPos({ x: previewSize.width / 2, y: previewSize.height / 2 });
+      } else {
+        setCrosshairPos(null);
+      }
+    }
     else {
       setTimeout(() => {
         try {
@@ -670,10 +681,23 @@ const ColorDetector: React.FC<ColorDetectorProps> = ({ onBack, openSettings, voi
         }
         if (selectedSample) try { setCrosshairPos({ x: relX, y: relY }); } catch (_e) {}
         if (voiceEnabled && voiceMode !== 'disable' && selectedSample) {
-          try { const textToSpeak = voiceMode === 'real' ? selectedSample.realName : selectedSample.family; try { freezeSpeakTimersRef.current.forEach((tid) => { try { clearTimeout(tid as any); } catch (_e) {} }); } catch (_e) {}; freezeSpeakTimersRef.current = []; try { stopTts(); } catch (_e) {}; const ok = safeSpeak(textToSpeak); lastSpokenRef.current = Date.now(); } catch (err) {}
+          try {
+            const textToSpeak = voiceMode === 'real' ? selectedSample.realName : selectedSample.family;
+            try { freezeSpeakTimersRef.current.forEach((tid) => { try { clearTimeout(tid as any); } catch (_e) {} }); } catch (_e) {}
+            freezeSpeakTimersRef.current = [];
+            try { stopTts(); } catch (_e) {}
+            const ok = safeSpeak(textToSpeak, { force: true });
+            lastSpokenRef.current = Date.now();
+            suppressSpeechRef.current = false;
+          } catch (err) {}
         }
       } catch (_err) {
-        try { const sampled = getFallbackColor(); setDetected(sampled); setFrozenSnapshot(sampled); if (voiceEnabled && voiceMode !== 'disable') try { safeSpeak(voiceMode === 'real' ? sampled.realName : sampled.family); } catch (_e) {} } catch (_e) {}
+        try {
+          const sampled = getFallbackColor();
+          setDetected(sampled);
+          setFrozenSnapshot(sampled);
+          if (voiceEnabled && voiceMode !== 'disable') try { safeSpeak(voiceMode === 'real' ? sampled.realName : sampled.family, { force: true }); suppressSpeechRef.current = false; } catch (_e) {}
+        } catch (_e) {}
       }
     } catch (err) {}
   };
@@ -714,10 +738,23 @@ const ColorDetector: React.FC<ColorDetectorProps> = ({ onBack, openSettings, voi
         }
         if (selectedSample) try { setCrosshairPos({ x: relX, y: relY }); } catch (_e) {}
         if (voiceEnabled && voiceMode !== 'disable' && selectedSample) {
-          try { const textToSpeak = voiceMode === 'real' ? selectedSample.realName : selectedSample.family; try { freezeSpeakTimersRef.current.forEach((tid) => { try { clearTimeout(tid as any); } catch (_e) {} }); } catch (_e) {}; freezeSpeakTimersRef.current = []; try { stopTts(); } catch (_e) {}; const ok = safeSpeak(textToSpeak); lastSpokenRef.current = Date.now(); } catch (err) {}
+          try {
+            const textToSpeak = voiceMode === 'real' ? selectedSample.realName : selectedSample.family;
+            try { freezeSpeakTimersRef.current.forEach((tid) => { try { clearTimeout(tid as any); } catch (_e) {} }); } catch (_e) {}
+            freezeSpeakTimersRef.current = [];
+            try { stopTts(); } catch (_e) {}
+            const ok = safeSpeak(textToSpeak, { force: true });
+            lastSpokenRef.current = Date.now();
+            suppressSpeechRef.current = false;
+          } catch (err) {}
         }
       } catch (_err) {
-        try { const sampled = getFallbackColor(); setDetected(sampled); setFrozenSnapshot(sampled); if (voiceEnabled && voiceMode !== 'disable') try { safeSpeak(voiceMode === 'real' ? sampled.realName : sampled.family); } catch (_e) {} } catch (_e) {}
+        try {
+          const sampled = getFallbackColor();
+          setDetected(sampled);
+          setFrozenSnapshot(sampled);
+          if (voiceEnabled && voiceMode !== 'disable') try { safeSpeak(voiceMode === 'real' ? sampled.realName : sampled.family, { force: true }); suppressSpeechRef.current = false; } catch (_e) {}
+        } catch (_e) {}
       }
     } catch (err) {}
   };
@@ -897,6 +934,15 @@ const ColorDetector: React.FC<ColorDetectorProps> = ({ onBack, openSettings, voi
   };
   useEffect(() => { panResponder.current = PanResponder.create({ onStartShouldSetPanResponder: () => adjusting, onMoveShouldSetPanResponder: () => adjusting, onPanResponderGrant: () => { try { pan.setOffset({ x: (pan.x as any).__getValue ? (pan.x as any).__getValue() : 0, y: (pan.y as any).__getValue ? (pan.y as any).__getValue() : 0 }); } catch (_e) {} pan.setValue({ x: 0, y: 0 }); }, onPanResponderMove: Animated.event([null, { dx: pan.x, dy: pan.y }], { useNativeDriver: false }), onPanResponderRelease: () => { pan.flattenOffset(); clampPanToBounds(); }, onPanResponderTerminate: () => { pan.flattenOffset(); clampPanToBounds(); } }); }, [adjusting, imageScaledSize, previewSize]);
   useEffect(() => { if (!previewSize || !imageNaturalSize) return; const pw = previewSize.width; const ph = previewSize.height; const iw = imageNaturalSize.w; const ih = imageNaturalSize.h; const scale = Math.max(pw / iw, ph / ih); setImageScaledSize({ w: Math.round(iw * scale), h: Math.round(ih * scale) }); pan.setValue({ x: 0, y: 0 }); }, [previewSize, imageNaturalSize]);
+  useEffect(() => {
+    if (!previewSize) return;
+    const center = { x: previewSize.width / 2, y: previewSize.height / 2 };
+    if (!freeze) {
+      setCrosshairPos(center);
+    } else if (!crosshairPos) {
+      setCrosshairPos(center);
+    }
+  }, [previewSize, freeze]);
 
   const clampPanToBounds = () => { if (!previewSize || !imageScaledSize) return; const maxOffsetX = Math.max(0, (imageScaledSize.w - previewSize.width) / 2); const maxOffsetY = Math.max(0, (imageScaledSize.h - previewSize.height) / 2); const curX = (pan.x as any).__getValue ? (pan.x as any).__getValue() : 0; const curY = (pan.y as any).__getValue ? (pan.y as any).__getValue() : 0; let clampedX = curX; let clampedY = curY; if (curX > maxOffsetX) clampedX = maxOffsetX; if (curX < -maxOffsetX) clampedX = -maxOffsetX; if (curY > maxOffsetY) clampedY = maxOffsetY; if (curY < -maxOffsetY) clampedY = -maxOffsetY; if (clampedX !== curX || clampedY !== curY) { Animated.spring(pan, { toValue: { x: clampedX, y: clampedY }, useNativeDriver: false }).start(); } };
   const onAdjustToggle = () => { setAdjusting((v) => { const next = !v; if (!next) setTimeout(() => clampPanToBounds(), 10); return next; }); };
@@ -1282,9 +1328,6 @@ const ColorDetector: React.FC<ColorDetectorProps> = ({ onBack, openSettings, voi
           <Image source={ICONS.ARROWicon} style={styles.backIconImage} />
         </TouchableOpacity>
   <TouchableOpacity onPress={() => { openSettings(); }} style={styles.settingsButton}><Text style={styles.settingsText}>⚙️</Text></TouchableOpacity>
-            <TouchableOpacity onPress={() => setDebugVisible((v) => !v)} style={[styles.settingsButton, { marginLeft: 8 }]}>
-              <Text style={styles.settingsText}>{debugVisible ? 'DBG▲' : 'DBG'}</Text>
-            </TouchableOpacity>
         
       </View>
       <TouchableWithoutFeedback onPress={onPreviewTap}>
@@ -1434,7 +1477,7 @@ const ColorDetector: React.FC<ColorDetectorProps> = ({ onBack, openSettings, voi
                  </View>
                )}
 
-               {freeze && crosshairPos && (
+              {crosshairPos && (
                  <View
                    pointerEvents="none"
                    style={[
@@ -1450,28 +1493,8 @@ const ColorDetector: React.FC<ColorDetectorProps> = ({ onBack, openSettings, voi
                  </View>
                )}
     </View>
-
-
-            {/* Single centered reference box */}
-            {!freeze && previewSize && (
-              <View style={styles.referenceBoxContainer}>
-                <View style={styles.referenceBoxWrapper}>
-                  <View style={[
-                    styles.referenceBox,
-                    { width: getReferenceBoxPixelSize(), height: getReferenceBoxPixelSize() }
-                  ]} />
-                  <Text style={styles.referenceBoxLabel}>Put color to detect here</Text>
-                  <View style={styles.referenceBoxControls}>
-                    <TouchableOpacity style={styles.sizeButton} onPress={() => handleReferenceBoxSizeChange(-0.05)}>
-                      <Text style={styles.sizeButtonText}>−</Text>
-                    </TouchableOpacity>
-                    <Text style={styles.sizeText}>{(referenceBoxSizeInches * 10).toFixed(1)}</Text>
-                    <TouchableOpacity style={styles.sizeButton} onPress={() => handleReferenceBoxSizeChange(0.05)}>
-                      <Text style={styles.sizeButtonText}>+</Text>
-                    </TouchableOpacity>
-                  </View>
-                </View>
-              </View>
+            {!freeze && (
+              <Text style={styles.crosshairHint}>Aim the crosshair at the color you want to detect.</Text>
             )}
           </View>
           
@@ -1488,18 +1511,6 @@ const ColorDetector: React.FC<ColorDetectorProps> = ({ onBack, openSettings, voi
                   <Text style={styles.adjustHelpText}>Drag the image to position it so the area you want to sample is visible under the crosshair. Tap done when finished.</Text>
                 </View>
               )}
-            </View>
-          )}
-          {/* Debug overlay (always visible on preview or image when toggled) */}
-          {debugVisible && (
-            <View pointerEvents="none" style={{ position: 'absolute', left: 8, top: 8, zIndex: 9999, elevation: 99, backgroundColor: 'rgba(0,0,0,0.85)', padding: 10, borderRadius: 8, borderWidth: 2, borderColor: '#FFD700' }}>
-              <Text style={{ color: '#FFD700', fontSize: 14, fontWeight: 'bold', marginBottom: 2 }}>DBG PANEL</Text>
-              <Text style={{ color: '#fff', fontSize: 13 }}>Left median: {debugLeftMedian ? `${debugLeftMedian.r}, ${debugLeftMedian.g}, ${debugLeftMedian.b}` : '—'}</Text>
-              <Text style={{ color: '#fff', fontSize: 13 }}>Patch white frac: {typeof debugLeftFraction === 'number' ? debugLeftFraction.toFixed(2) : (debugLeftFraction === null ? 'N/A' : '—')}</Text>
-              <Text style={{ color: '#fff', fontSize: 13 }}>Gains: {debugGains ? `${debugGains.gr.toFixed(3)}, ${debugGains.gg.toFixed(3)}, ${debugGains.gb.toFixed(3)}` : '—'}</Text>
-              <Text style={{ color: '#fff', fontSize: 13 }}>Corrected R: {debugCorrectedRight ? `${debugCorrectedRight.r}, ${debugCorrectedRight.g}, ${debugCorrectedRight.b}` : '—'}</Text>
-              <Text style={{ color: '#fff', fontSize: 13 }}>Raw Right: {debugRightRaw ? `${debugRightRaw.r}, ${debugRightRaw.g}, ${debugRightRaw.b}` : '—'}</Text>
-              <Text style={{ color: '#fff', fontSize: 13 }}>Right match: {debugRightMatch ?? '—'}</Text>
             </View>
           )}
         </View>
@@ -1557,30 +1568,32 @@ const ColorDetector: React.FC<ColorDetectorProps> = ({ onBack, openSettings, voi
             </View>
           </View>
 
+        <View style={{ alignSelf: 'center', width: '100%', maxWidth: rf(280), paddingHorizontal: rf(20), paddingVertical: rf(12) }}>
           {showFamily && (
             <View style={styles.infoRow}>
               <Text style={styles.infoLabel}>Family of:</Text>
               <Text style={styles.infoValue}>{displayDetected?.family ?? '—'}</Text>
             </View>
           )}
-        {colorCodesVisible && (
-          <View style={styles.infoRow}>
-            <Text style={styles.infoLabel}>Hex:</Text>
-            <Text style={styles.infoValue}>{displayDetected?.hex ?? '—'}</Text>
-          </View>
-        )}
-        {showRealName && (
-          <View style={styles.infoRow}>
-            <Text style={styles.infoLabel}>Real Name:</Text>
-            <Text style={styles.infoValue}>{displayDetected?.realName ?? '—'}</Text>
-          </View>
-        )}
-        {typeof displayDetected?.confidence === 'number' && (
-          <View style={styles.infoRow}>
-            <Text style={styles.infoLabel}>Confidence:</Text>
-            <Text style={styles.infoValue}>{`${Math.round(displayDetected!.confidence)}% match`}</Text>
-          </View>
-        )}
+          {colorCodesVisible && (
+            <View style={styles.infoRow}>
+              <Text style={styles.infoLabel}>Hex:</Text>
+              <Text style={styles.infoValue}>{displayDetected?.hex ?? '—'}</Text>
+            </View>
+          )}
+          {showRealName && (
+            <View style={styles.infoRow}>
+              <Text style={styles.infoLabel}>Real Name:</Text>
+              <Text style={styles.infoValue}>{displayDetected?.realName ?? '—'}</Text>
+            </View>
+          )}
+          {typeof displayDetected?.confidence === 'number' && (
+            <View style={styles.infoRow}>
+              <Text style={styles.infoLabel}>Confidence:</Text>
+              <Text style={styles.infoValue}>{`${Math.round(displayDetected!.confidence)}% match`}</Text>
+            </View>
+          )}
+        </View>
         <View style={styles.uploadRow}>
           <TouchableOpacity style={styles.uploadButton} onPress={pickImage} activeOpacity={0.8}>
             <View style={styles.uploadButtonContent}>

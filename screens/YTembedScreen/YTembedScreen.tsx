@@ -1,5 +1,6 @@
 import React from 'react';
 import { View, Text, TouchableOpacity, StatusBar, Image } from 'react-native';
+import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { ICONS } from '../../Images';
 import { styles } from './YTembedScreen.styles';
 
@@ -13,8 +14,8 @@ interface YTembedScreenProps {
   onBack: () => void;
 }
 const YTembedScreen: React.FC<YTembedScreenProps> = ({ onBack }) => {
-  
   const navigation = useNavigationHook();
+  const insets = useSafeAreaInsets();
 
   const handleBackToSettings = () => {
     try {
@@ -36,9 +37,9 @@ const YTembedScreen: React.FC<YTembedScreenProps> = ({ onBack }) => {
   }
   return (
     <View style={styles.container}>
-      <StatusBar barStyle="dark-content" backgroundColor="#FFFFFF" />
+      <StatusBar barStyle="light-content" backgroundColor="#007FFF" />
       
-      <View style={styles.header}>
+      <View style={[styles.header, { paddingTop: (insets.top || 0) + 12 }]}>
   <View style={styles.headerLeft}>
           <TouchableOpacity 
             style={styles.backButton} 

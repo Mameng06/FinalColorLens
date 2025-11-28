@@ -1,5 +1,5 @@
 import Color from 'colorjs.io';
-import dataset from '../android/app/src/main/assets/colormodel.json';
+import dataset from '../colormodel.json';
 
 export type ColorRow = {
   name: string;

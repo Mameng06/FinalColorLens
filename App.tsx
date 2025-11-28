@@ -9,10 +9,11 @@ import WelcomeScreen from './screens/WelcomeScreen/WelcomeScreen';
 import YTembedScreen from './screens/YTembedScreen/YTembedScreen';
 import ColorDetector from './screens/ColorDetector/ColorDetector';
 import CLSetting from './screens/CLSetting/CLSetting';
+import AboutScreen from './screens/AboutScreen/About';
 
 const App: React.FC = () => {
 
-  const [currentScreen, setCurrentScreen] = useState<'splash' | 'welcome' | 'youtube' | 'colorDetector' | 'settings'>('splash');
+  const [currentScreen, setCurrentScreen] = useState<'splash' | 'welcome' | 'youtube' | 'colorDetector' | 'settings' | 'about'>('splash');
   const [voiceEnabled, setVoiceEnabled] = useState(true);
   const [colorCodesVisible, setColorCodesVisible] = useState(true);
   const [showFamily, setShowFamily] = useState(true);
@@ -30,6 +31,10 @@ const App: React.FC = () => {
   };
 
   const handleBackFromYT = () => {
+    setCurrentScreen('settings');
+  };
+
+  const handleBackFromAbout = () => {
     setCurrentScreen('settings');
   };
   return (
@@ -64,11 +69,15 @@ const App: React.FC = () => {
             onToggleShowFamily={(v: boolean) => setShowFamily(v)}
             onToggleShowRealName={(v: boolean) => setShowRealName(v)}
             onNavigateToYT={handleNavigateToYT}
+            onNavigateToAbout={() => setCurrentScreen('about')}
             onChangeVoiceMode={(m:'family'|'real'|'disable')=>setVoiceMode(m)}
           />
         )}
         {currentScreen === 'youtube' && (
           <YTembedScreen onBack={handleBackFromYT} />
+        )}
+        {currentScreen === 'about' && (
+          <AboutScreen onBack={handleBackFromAbout} onDone={handleBackFromAbout} />
         )}
       </View>
     </SafeAreaProvider>
