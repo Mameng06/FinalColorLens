@@ -79,7 +79,7 @@ export const styles = StyleSheet.create({
   tapMarkerDot: { position: 'absolute', width: rf(18), height: rf(18), borderRadius: rf(9), backgroundColor: 'rgba(0,200,80,0.95)', borderWidth: 2, borderColor: '#fff', elevation: 8, shadowColor: '#000', shadowOffset: { width: 0, height: 2 }, shadowOpacity: 0.25, shadowRadius: 4 },
   
   // Reference boxes styles
-  referenceBoxContainer: { position: 'absolute', bottom: rf(12), left: rf(12), right: rf(12), flexDirection: 'row', justifyContent: 'space-between', alignItems: 'flex-end', elevation: 20 },
+  referenceBoxContainer: { position: 'absolute', bottom: rf(12), left: 0, right: 0, flexDirection: 'row', justifyContent: 'center', alignItems: 'flex-end', elevation: 20 },
   referenceBoxWrapper: { alignItems: 'center' },
   referenceBox: { borderWidth: 2, borderColor: '#FFF', backgroundColor: 'rgba(255,255,255,0.1)', position: 'relative' },
   referenceBoxLabel: { fontSize: rf(12), color: '#fff', fontWeight: '600', marginTop: rf(6), textAlign: 'center', maxWidth: rf(80) },

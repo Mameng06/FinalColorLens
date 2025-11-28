@@ -103,6 +103,37 @@ const ColorDetector: React.FC<ColorDetectorProps> = ({ onBack, openSettings, voi
   const [debugRightRaw, setDebugRightRaw] = useState<{r:number;g:number;b:number}|null>(null);
   const [debugRightMatch, setDebugRightMatch] = useState<string | null>(null);
 
+  const rollingRightColorsRef = useRef<Array<{r:number;g:number;b:number}>>([]);
+
+  const rgbDist = (a: {r:number;g:number;b:number}, b: {r:number;g:number;b:number}) => {
+    const dr = a.r - b.r; const dg = a.g - b.g; const db = a.b - b.b;
+    return Math.sqrt(dr*dr + dg*dg + db*db);
+  };
+
+  const temporalMedianPush = (c: {r:number;g:number;b:number}, size = 5): {r:number;g:number;b:number} => {
+    try {
+      const arr = rollingRightColorsRef.current || [];
+      arr.push(c);
+      while (arr.length > size) arr.shift();
+      rollingRightColorsRef.current = arr;
+      const med = medianRgb(arr);
+      return med || c;
+    } catch (_e) { return c; }
+  };
+
+  const lumaOf = (c: {r:number;g:number;b:number}) => 0.299 * c.r + 0.587 * c.g + 0.114 * c.b;
+  const variance = (vals: number[]) => {
+    if (!vals.length) return 0;
+    const mean = vals.reduce((a,b)=>a+b,0) / vals.length;
+    return vals.reduce((s,v)=> s + (v-mean)*(v-mean), 0) / vals.length;
+  };
+  const filterOutliersAroundMedian = (samples: Array<{r:number;g:number;b:number}>, threshold = 35) => {
+    if (!samples.length) return samples;
+    const med = medianRgb(samples);
+    if (!med) return samples;
+    return samples.filter(s => rgbDist(s, med) <= threshold);
+  };
+
   const pushLeftWhiteHistory = (isWhite: boolean) => {
     try {
       const arr = leftWhiteHistoryRef.current || [];
@@ -241,14 +272,12 @@ const ColorDetector: React.FC<ColorDetectorProps> = ({ onBack, openSettings, voi
       let base64: string | null = null;
       // clear previous per-pass debug entries
       try { setDebugRightRaw(null); setDebugRightMatch(null); } catch (_e) {}
-      // If left box is disabled, also clear any left-box debug/white status so it won't appear to update
+      // Clear any left-box debug/white status (no longer used)
       try {
-        if (!leftBoxEnabledRef.current) {
-          try { setDebugLeftMedian(null); } catch (_e) {}
-          try { setDebugLeftFraction(null); } catch (_e) {}
-          try { leftWhiteHistoryRef.current = []; } catch (_e) {}
-          try { setWhiteBalanceStatus({ status: 'ok', message: '' }); } catch (_e) {}
-        }
+        try { setDebugLeftMedian(null); } catch (_e) {}
+        try { setDebugLeftFraction(null); } catch (_e) {}
+        try { leftWhiteHistoryRef.current = []; } catch (_e) {}
+        try { setWhiteBalanceStatus({ status: 'ok', message: '' }); } catch (_e) {}
       } catch (_e) {}
       let uri: string | undefined = blobLike?.path || blobLike?.uri || blobLike?.localUri || blobLike?.filePath || blobLike?.file;
       try { if (uri && typeof uri === 'string' && uri.startsWith('/')) uri = 'file://' + uri; } catch (_e) {}
@@ -262,151 +291,100 @@ const ColorDetector: React.FC<ColorDetectorProps> = ({ onBack, openSettings, voi
               const pw = previewLayout.current?.width || 0;
               const ph = previewLayout.current?.height || 0;
               console.log('[ColorDetector] native decode branch, preview size:', { pw, ph });
-              console.log('[ColorDetector] leftBoxEnabled (ref) state:', leftBoxEnabledRef.current);
-              console.log('[ColorDetector] About to enter !leftBoxEnabledRef.current check...');
               
-              // If left box is disabled, skip left sampling and go directly to right box
-              if (!leftBoxEnabledRef.current) {
-                console.log('[ColorDetector] YES - LEFT BOX DISABLED — will sample right box only');
-                const rightBoxRelX = pw * 0.75; // Right box is at 75% from left
-                const rightBoxRelY = ph * 0.75; // Right box is at 75% from top (bottom area)
-                console.log(`[ColorDetector Native] Left disabled - Attempting native decode at (${rightBoxRelX.toFixed(0)}, ${rightBoxRelY.toFixed(0)})`);
-                const rightSample = await decodeScaledRegion(normalizedUri, rightBoxRelX, rightBoxRelY, pw, ph);
-                console.log(`[ColorDetector Native] Right sample result:`, rightSample ? `${rightSample.r},${rightSample.g},${rightSample.b}` : 'null');
-                try { setDebugRightRaw(rightSample); setDebugRightMatch(null); } catch (_e) {}
-                // If native decode fails, try a JPEG decode fallback immediately
-                if (!rightSample) {
-                  try {
-                    console.log('[ColorDetector Native] decodeScaledRegion returned null — trying JPEG fallback');
-                    const RNFS = require('react-native-fs');
-                    const base64 = await RNFS.readFile(normalizedUri.replace('file://',''), 'base64');
-                    const { jpegjs: _jpegjs, BufferShim: _BufferShim } = getJpegUtils();
-                    if (_jpegjs && _BufferShim && base64) {
-                      const buffer = _BufferShim.from(base64, 'base64');
-                      const decoded = _jpegjs.decode(buffer, { useTArray: true });
-                      if (decoded && decoded.width && decoded.data) {
-                        const w = decoded.width; const h = decoded.height; const data = decoded.data;
-                        const rx = Math.floor((rightBoxRelX / pw) * w);
-                        const ry = Math.floor((rightBoxRelY / ph) * h);
-                        const rRadius = Math.max(1, Math.floor(Math.min(w, h) * 0.02));
-                        const samples: Array<{r:number;g:number;b:number}> = [];
-                        for (let yy = Math.max(0, ry - rRadius); yy <= Math.min(h-1, ry + rRadius); yy++) {
-                          for (let xx = Math.max(0, rx - rRadius); xx <= Math.min(w-1, rx + rRadius); xx++) {
-                            const idx = (yy * w + xx) * 4;
-                            samples.push({ r: data[idx], g: data[idx+1], b: data[idx+2] });
-                          }
+              // Sample from center box position
+              const centerBoxRelX = pw * 0.5; // Center box is at 50% from left
+              const centerBoxRelY = ph * 0.6; // Center box is at 60% from top (slightly below center)
+              console.log(`[ColorDetector Native] Attempting native decode grid around center (${centerBoxRelX.toFixed(0)}, ${centerBoxRelY.toFixed(0)})`);
+              const gridRadius = Math.max(2, Math.floor(Math.min(pw, ph) * 0.03));
+              const steps = 2; // 5x5 grid
+              const nativeCenterSamples: Array<{r:number;g:number;b:number}> = [];
+              for (let gy = -steps; gy <= steps; gy++) {
+                for (let gx = -steps; gx <= steps; gx++) {
+                  const sx = centerBoxRelX + (gx * gridRadius);
+                  const sy = centerBoxRelY + (gy * gridRadius);
+                  // eslint-disable-next-line no-await-in-loop
+                  const s = await decodeScaledRegion(normalizedUri, sx, sy, pw, ph);
+                  if (s && typeof s.r === 'number') nativeCenterSamples.push(s);
+                }
+              }
+              const filtered = filterOutliersAroundMedian(nativeCenterSamples, 35);
+              const lumas = filtered.map(s => lumaOf(s));
+              const edgeEnergy = variance(lumas);
+              if (filtered.length < 5 || edgeEnergy < 3) {
+                // Likely too blurry or too few valid samples; skip this frame
+                processingFrameRef.current = false;
+                return false;
+              }
+              let centerSample = medianRgb(filtered);
+              console.log(`[ColorDetector Native] Center sample result (median of ${filtered.length}, edgeEnergy=${edgeEnergy.toFixed(2)}):`, centerSample ? `${centerSample.r},${centerSample.g},${centerSample.b}` : 'null');
+              try { setDebugRightRaw(centerSample); setDebugRightMatch(null); } catch (_e) {}
+              // If native decode fails, try a JPEG decode fallback immediately
+              if (!centerSample) {
+                try {
+                  console.log('[ColorDetector Native] decodeScaledRegion returned null — trying JPEG fallback');
+                  const RNFS = require('react-native-fs');
+                  const base64 = await RNFS.readFile(normalizedUri.replace('file://',''), 'base64');
+                  const { jpegjs: _jpegjs, BufferShim: _BufferShim } = getJpegUtils();
+                  if (_jpegjs && _BufferShim && base64) {
+                    const buffer = _BufferShim.from(base64, 'base64');
+                    const decoded = _jpegjs.decode(buffer, { useTArray: true });
+                    if (decoded && decoded.width && decoded.data) {
+                      const w = decoded.width; const h = decoded.height; const data = decoded.data;
+                      const cx = Math.floor((centerBoxRelX / pw) * w);
+                      const cy = Math.floor((centerBoxRelY / ph) * h);
+                      const cRadius = Math.max(1, Math.floor(Math.min(w, h) * 0.02));
+                      const samples: Array<{r:number;g:number;b:number}> = [];
+                      for (let yy = Math.max(0, cy - cRadius); yy <= Math.min(h-1, cy + cRadius); yy++) {
+                        for (let xx = Math.max(0, cx - cRadius); xx <= Math.min(w-1, cx + cRadius); xx++) {
+                          const idx = (yy * w + xx) * 4;
+                          samples.push({ r: data[idx], g: data[idx+1], b: data[idx+2] });
                         }
-                        if (samples.length > 0) {
-                          const median = medianRgb(samples);
-                          console.log('[ColorDetector Native] JPEG fallback median:', median ? `${median.r},${median.g},${median.b}` : 'null');
-                          if (median) {
-                            try { setDebugRightRaw(median); } catch (_e) {}
-                            // proceed to inference/matcher fallback below by assigning rightSample-like object
-                            // reuse variable name for downstream logic
-                            // @ts-ignore
-                            rightSample = median;
-                          }
+                      }
+                      if (samples.length > 0) {
+                        const median = medianRgb(samples);
+                        console.log('[ColorDetector Native] JPEG fallback median:', median ? `${median.r},${median.g},${median.b}` : 'null');
+                        if (median) {
+                          try { setDebugRightRaw(median); } catch (_e) {}
+                          // proceed to inference/matcher fallback below by assigning centerSample-like object
+                          // reuse variable name for downstream logic
+                          // @ts-ignore
+                          centerSample = median;
                         }
                       }
                     }
-                  } catch (_e) { console.log('[ColorDetector Native] JPEG fallback failed:', _e); }
+                  }
+                } catch (_e) { console.log('[ColorDetector Native] JPEG fallback failed:', _e); }
+              }
+              if (centerSample && typeof centerSample.r === 'number') {
+                const sampleForInference = temporalMedianPush(centerSample, 7);
+                try { setDebugCorrectedRight(sampleForInference); } catch (_e) {}
+                console.log(`[ColorDetector Native] About to infer color`);
+                const inferred = await inferColorFromRGB({ r: sampleForInference.r, g: sampleForInference.g, b: sampleForInference.b }).catch((e) => {
+                  console.log(`[ColorDetector Native] Inference error:`, e);
+                  return null;
+                });
+                console.log(`[ColorDetector Native] Inferred:`, inferred ? inferred.realName : 'null');
+                if (inferred) {
+                  const live = { family: inferred.family, hex: inferred.hex, realName: inferred.realName, confidence: inferred.confidence };
+                  try { setDebugRightMatch(inferred.realName || inferred.family || inferred.hex || null); } catch (_e) {}
+                  if (!freeze) setLiveDetected(live);
+                  processingFrameRef.current = false;
+                  return true;
                 }
-                if (rightSample && typeof rightSample.r === 'number') {
-                  try { setDebugCorrectedRight(rightSample); } catch (_e) {}
-                  console.log(`[ColorDetector Native] About to infer color`);
-                  const inferred = await inferColorFromRGB({ r: rightSample.r, g: rightSample.g, b: rightSample.b }).catch((e) => {
-                    console.log(`[ColorDetector Native] Inference error:`, e);
-                    return null;
-                  });
-                  console.log(`[ColorDetector Native] Inferred:`, inferred ? inferred.realName : 'null');
-                  if (inferred) {
-                    const live = { family: inferred.family, hex: inferred.hex, realName: inferred.realName, confidence: inferred.confidence };
-                    try { setDebugRightMatch(inferred.realName || inferred.family || inferred.hex || null); } catch (_e) {}
+                // Fallback: try matcher-based nearest color
+                try {
+                  const match = await findClosestColorAsync([sampleForInference.r, sampleForInference.g, sampleForInference.b], 3).catch(() => null);
+                  console.log(`[ColorDetector Native] Matcher fallback:`, match ? match.closest_match : null);
+                  if (match && match.closest_match) {
+                    const cm = match.closest_match;
+                    const live = { family: cm.family || cm.name, hex: cm.hex, realName: cm.name, confidence: cm.confidence };
+                    try { setDebugRightMatch(cm.name || cm.family || cm.hex || null); } catch (_e) {}
                     if (!freeze) setLiveDetected(live);
                     processingFrameRef.current = false;
                     return true;
                   }
-                  // Fallback: when left box is disabled, try matcher-based nearest color
-                  try {
-                    const match = await findClosestColorAsync([rightSample.r, rightSample.g, rightSample.b], 3).catch(() => null);
-                    console.log(`[ColorDetector Native] Matcher fallback:`, match ? match.closest_match : null);
-                    if (match && match.closest_match) {
-                      const cm = match.closest_match;
-                      const live = { family: cm.family || cm.name, hex: cm.hex, realName: cm.name, confidence: cm.confidence };
-                      try { setDebugRightMatch(cm.name || cm.family || cm.hex || null); } catch (_e) {}
-                      if (!freeze) setLiveDetected(live);
-                      processingFrameRef.current = false;
-                      return true;
-                    }
-                  } catch (_e) {}
-                }
-                // If native decoding didn't work, let it fall through to JPEG path
-              } else {
-                // Normal flow when left box is enabled: validate white first
-                console.log('[ColorDetector] NO - LEFT BOX IS ENABLED (ref), will sample left then right');
-                // First, sample from LEFT box position (bottom-left) to validate white
-                const leftBoxRelX = pw * 0.25; // Left box is at 25% from left
-                const leftBoxRelY = ph * 0.75; // Left box is at 75% from top (bottom area)
-                const leftSample = await decodeScaledRegion(normalizedUri, leftBoxRelX, leftBoxRelY, pw, ph);
-                if (leftSample && typeof leftSample.r === 'number') {
-                  let shouldProceedToRightBox = false;
-                  
-                  updateWhiteBalanceStatus(leftSample.r, leftSample.g, leftSample.b);
-                  // Populate debug for native path (single-sample)
-                  try { setDebugLeftMedian({ r: leftSample.r, g: leftSample.g, b: leftSample.b }); } catch (_e) {}
-                  try { setDebugLeftFraction(null); } catch (_e) {}
-                  try { setDebugGains(getCalibratedGains()); } catch (_e) {}
-                  const useCalibration = Boolean(getCalibratedGains());
-                  const whiteStatus = getWhiteSurfaceStatus(leftSample.r, leftSample.g, leftSample.b, useCalibration);
-                  // For native path we only have a single sample; push to history and require consensus
-                  const leftConsensus = pushLeftWhiteHistory(whiteStatus.status === 'ok');
-                  if (leftConsensus) {
-                    shouldProceedToRightBox = true;
-                    // Auto-calibrate once if not already calibrated
-                    if (!getCalibratedGains()) {
-                      try {
-                        const gains = computeSimpleWhiteGains(leftSample.r, leftSample.g, leftSample.b);
-                        setCalibratedGains(gains);
-                        try { setDebugGains(gains); } catch (_e) {}
-                      } catch (_e) {}
-                    }
-                  }
-                  
-                  // Now sample from RIGHT box position (bottom-right) for color detection
-                  if (shouldProceedToRightBox) {
-                      console.log(`[ColorDetector] Right median RGB: ${rightSampled ? `${rightSampled.r},${rightSampled.g},${rightSampled.b}` : 'null'}`);
-                      if (rightSampled) {
-                        try { setDebugRightRaw(rightSampled); setDebugRightMatch(null); } catch (_e) {}
-                        try { setDebugCorrectedRight(rightSampled); } catch (_e) {}
-                        console.log(`[ColorDetector] About to infer color from: ${rightSampled.r},${rightSampled.g},${rightSampled.b}`);
-                        const inferred = await inferColorFromRGB({ r: rightSampled.r, g: rightSampled.g, b: rightSampled.b }).catch((e) => {
-                          console.log(`[ColorDetector] Inference error:`, e);
-                          return null;
-                        });
-                        console.log(`[ColorDetector] Inferred result:`, inferred ? inferred.realName : 'null');
-                        if (inferred) {
-                          const live = { family: inferred.family, hex: inferred.hex, realName: inferred.realName, confidence: inferred.confidence };
-                          try { setDebugRightMatch(inferred.realName || inferred.family || inferred.hex || null); } catch (_e) {}
-                          if (!freeze) setLiveDetected(live);
-                          processingFrameRef.current = false;
-                          return true;
-                        }
-                        // Fallback to matcher if inference failed (left-box disabled mode)
-                        try {
-                          const match = findClosestColor([rightSampled.r, rightSampled.g, rightSampled.b], 3);
-                          console.log('[ColorDetector] Matcher fallback (sync):', match && match.closest_match ? match.closest_match.name : null);
-                          if (match && match.closest_match) {
-                            const cm = match.closest_match;
-                            const live = { family: cm.family || cm.name, hex: cm.hex, realName: cm.name, confidence: cm.confidence };
-                            try { setDebugRightMatch(cm.name || cm.family || cm.hex || null); } catch (_e) {}
-                            if (!freeze) setLiveDetected(live);
-                            processingFrameRef.current = false;
-                            return true;
-                          }
-                        } catch (_e) {}
-                      }
-                  }
-                }
+                } catch (_e) {}
               }
             }
           } catch (nativeErr) {
@@ -428,110 +406,35 @@ const ColorDetector: React.FC<ColorDetectorProps> = ({ onBack, openSettings, voi
         if (!decoded || !decoded.width || !decoded.data) { processingFrameRef.current = false; return false; }
         const w = decoded.width; const h = decoded.height; const data = decoded.data;
         
-        // If left box is disabled, skip left sampling and go directly to right box
-        if (!leftBoxEnabledRef.current) {
-          const rx = Math.floor(w * 0.75);
-          const ry = Math.floor(h * 0.75);
-          const rRadius = Math.floor(Math.min(w, h) * 0.06);
-          const rightSamples: Array<{r:number;g:number;b:number}> = [];
-          for (let yy = Math.max(0, ry - rRadius); yy <= Math.min(h-1, ry + rRadius); yy++) {
-            for (let xx = Math.max(0, rx - rRadius); xx <= Math.min(w-1, rx + rRadius); xx++) {
-              const idx = (yy * w + xx) * 4;
-              rightSamples.push({ r: data[idx], g: data[idx+1], b: data[idx+2] });
-            }
+        // Sample from center box area
+        const cx = Math.floor(w * 0.5);
+        const cy = Math.floor(h * 0.6);
+        const cRadius = Math.floor(Math.min(w, h) * 0.06);
+        const centerSamples: Array<{r:number;g:number;b:number}> = [];
+        for (let yy = Math.max(0, cy - cRadius); yy <= Math.min(h-1, cy + cRadius); yy++) {
+          for (let xx = Math.max(0, cx - cRadius); xx <= Math.min(w-1, cx + cRadius); xx++) {
+            const idx = (yy * w + xx) * 4;
+            centerSamples.push({ r: data[idx], g: data[idx+1], b: data[idx+2] });
           }
-          console.log(`[ColorDetector] Left disabled - Right samples collected: ${rightSamples.length}`);
-          if (rightSamples.length > 0) {
-            const rightSampled = medianRgb(rightSamples);
-            console.log(`[ColorDetector] Right median RGB: ${rightSampled ? `${rightSampled.r},${rightSampled.g},${rightSampled.b}` : 'null'}`);
-            if (rightSampled) {
-              try { setDebugRightRaw(rightSampled); setDebugRightMatch(null); } catch (_e) {}
-              try { setDebugCorrectedRight(rightSampled); } catch (_e) {}
-              console.log(`[ColorDetector] About to infer color from: ${rightSampled.r},${rightSampled.g},${rightSampled.b}`);
-              const inferred = await inferColorFromRGB({ r: rightSampled.r, g: rightSampled.g, b: rightSampled.b }).catch((e) => {
-                console.log(`[ColorDetector] Inference error:`, e);
-                return null;
-              });
-              console.log(`[ColorDetector] Inferred result:`, inferred ? inferred.realName : 'null');
-              if (inferred) {
-                const live = { family: inferred.family, hex: inferred.hex, realName: inferred.realName, confidence: inferred.confidence };
-                if (!freeze) setLiveDetected(live);
-                processingFrameRef.current = false;
-                return true;
-              }
-            }
-          }
-        } else {
-          // Normal flow when left box is enabled
-          // Sample from LEFT reference box area (bottom-left) using median aggregation for robustness
-          const lx = Math.floor(w * 0.25);
-          const ly = Math.floor(h * 0.75);
-          const lRadius = Math.floor(Math.min(w, h) * 0.06); // slightly smaller patch to avoid background
-          const leftSamples: Array<{r:number;g:number;b:number}> = [];
-          for (let yy = Math.max(0, ly - lRadius); yy <= Math.min(h-1, ly + lRadius); yy++) {
-            for (let xx = Math.max(0, lx - lRadius); xx <= Math.min(w-1, lx + lRadius); xx++) {
-              const idx = (yy * w + xx) * 4;
-              leftSamples.push({ r: data[idx], g: data[idx+1], b: data[idx+2] });
-            }
-          }
-          if (leftSamples.length > 0) {
-            const leftSampled = medianRgb(leftSamples);
-            if (leftSampled) {
-              let shouldProceedToRightBox = false;
-              
-              updateWhiteBalanceStatus(leftSampled.r, leftSampled.g, leftSampled.b);
-              // Populate debug info from JPEG path
-              try { setDebugLeftMedian(leftSampled); } catch (_e) {}
-              const useCalibration = Boolean(getCalibratedGains());
-              // Use both a patch-majority test and Lab/RGB fallback for robustness
-              const patchFraction = fractionWhiteInSamples(leftSamples);
-              try { setDebugLeftFraction(patchFraction); } catch (_e) {}
-              try { setDebugGains(getCalibratedGains()); } catch (_e) {}
-              const patchOk = patchFraction >= 0.65;
-              const whiteStatus = getWhiteSurfaceStatus(leftSampled.r, leftSampled.g, leftSampled.b, useCalibration);
-              const leftIsWhite = patchOk || whiteStatus.status === 'ok';
-              const leftConsensus = pushLeftWhiteHistory(leftIsWhite);
-              if (leftConsensus) {
-                shouldProceedToRightBox = true;
-                // Auto-calibrate once if not already calibrated
-                if (!getCalibratedGains()) {
-                  try {
-                    const gains = computeSimpleWhiteGains(leftSampled.r, leftSampled.g, leftSampled.b);
-                    setCalibratedGains(gains);
-                    try { setDebugGains(gains); } catch (_e) {}
-                  } catch (_e) {}
-                }
-              }
-              
-              // Now sample from RIGHT reference box area (bottom-right) using median aggregation
-              if (shouldProceedToRightBox) {
-                const rx = Math.floor(w * 0.75);
-                const ry = Math.floor(h * 0.75);
-                const rRadius = Math.floor(Math.min(w, h) * 0.06); // slightly smaller patch
-                const rightSamples: Array<{r:number;g:number;b:number}> = [];
-                for (let yy = Math.max(0, ry - rRadius); yy <= Math.min(h-1, ry + rRadius); yy++) {
-                  for (let xx = Math.max(0, rx - rRadius); xx <= Math.min(w-1, rx + rRadius); xx++) {
-                    const idx = (yy * w + xx) * 4;
-                    rightSamples.push({ r: data[idx], g: data[idx+1], b: data[idx+2] });
-                  }
-                }
-                if (rightSamples.length > 0) {
-                  const rightSampled = medianRgb(rightSamples);
-                  if (rightSampled) {
-                    // Apply automatic white-balance correction if we have calibrated gains
-                    const gains = getCalibratedGains();
-                    const sampleForInference = gains ? applySimpleWhiteBalanceCorrection(rightSampled, gains) : rightSampled;
-                    try { setDebugCorrectedRight(sampleForInference); } catch (_e) {}
-                    const inferred = await inferColorFromRGB({ r: sampleForInference.r, g: sampleForInference.g, b: sampleForInference.b }).catch(() => null);
-                    if (inferred) {
-                      const live = { family: inferred.family, hex: inferred.hex, realName: inferred.realName, confidence: inferred.confidence };
-                      if (!freeze) setLiveDetected(live);
-                      processingFrameRef.current = false;
-                      return true;
-                    }
-                  }
-                }
-              }
+        }
+        console.log(`[ColorDetector] Center samples collected: ${centerSamples.length}`);
+        if (centerSamples.length > 0) {
+          const centerSampled = medianRgb(centerSamples);
+          console.log(`[ColorDetector] Center median RGB: ${centerSampled ? `${centerSampled.r},${centerSampled.g},${centerSampled.b}` : 'null'}`);
+          if (centerSampled) {
+            try { setDebugRightRaw(centerSampled); setDebugRightMatch(null); } catch (_e) {}
+            try { setDebugCorrectedRight(centerSampled); } catch (_e) {}
+            console.log(`[ColorDetector] About to infer color from: ${centerSampled.r},${centerSampled.g},${centerSampled.b}`);
+            const inferred = await inferColorFromRGB({ r: centerSampled.r, g: centerSampled.g, b: centerSampled.b }).catch((e) => {
+              console.log(`[ColorDetector] Inference error:`, e);
+              return null;
+            });
+            console.log(`[ColorDetector] Inferred result:`, inferred ? inferred.realName : 'null');
+            if (inferred) {
+              const live = { family: inferred.family, hex: inferred.hex, realName: inferred.realName, confidence: inferred.confidence };
+              if (!freeze) setLiveDetected(live);
+              processingFrameRef.current = false;
+              return true;
             }
           }
         }
@@ -659,19 +562,13 @@ const ColorDetector: React.FC<ColorDetectorProps> = ({ onBack, openSettings, voi
             try { if (debounceClearRef.current) { clearTimeout(debounceClearRef.current as any); debounceClearRef.current = null; } } catch (_e) {}
             return;
           }
-          // on failure: when left box is enabled, clear immediately (keep legacy behaviour)
-          if (leftBoxEnabled) {
-            setLiveDetected(null);
-            return;
-          }
-          // when left box is disabled, schedule a short debounce clear so
-          // intermittent misses don't erase the last known detection immediately
+          // Schedule a short debounce clear so intermittent misses don't erase the last known detection immediately
           try {
             if (debounceClearRef.current) { clearTimeout(debounceClearRef.current as any); debounceClearRef.current = null; }
             debounceClearRef.current = setTimeout(() => { try { setLiveDetected(null); } catch (_e) {} debounceClearRef.current = null; }, 1600) as unknown as number;
           } catch (_e) { setLiveDetected(null); }
         }).catch(() => {
-          if (leftBoxEnabled) setLiveDetected(null);
+          setLiveDetected(null);
         });
       }
     }, 800);
@@ -1554,24 +1451,16 @@ const ColorDetector: React.FC<ColorDetectorProps> = ({ onBack, openSettings, voi
                )}
     </View>
 
-            {/* Warning message display */}
-            {whiteBalanceStatus.status !== 'ok' && leftBoxEnabled && (
-              <View style={styles.warningContainer}>
-                <Text style={styles.warningText}>{whiteBalanceStatus.message}</Text>
-              </View>
-            )}
 
-            {/* Reference boxes */}
+            {/* Single centered reference box */}
             {!freeze && previewSize && (
               <View style={styles.referenceBoxContainer}>
-                {/* Left box - White reference */}
                 <View style={styles.referenceBoxWrapper}>
                   <View style={[
                     styles.referenceBox,
-                    leftBoxEnabled ? {} : styles.referenceBoxDisabled,
                     { width: getReferenceBoxPixelSize(), height: getReferenceBoxPixelSize() }
                   ]} />
-                  <Text style={styles.referenceBoxLabel}>Place white paper here</Text>
+                  <Text style={styles.referenceBoxLabel}>Put color to detect here</Text>
                   <View style={styles.referenceBoxControls}>
                     <TouchableOpacity style={styles.sizeButton} onPress={() => handleReferenceBoxSizeChange(-0.05)}>
                       <Text style={styles.sizeButtonText}>−</Text>
@@ -1580,22 +1469,7 @@ const ColorDetector: React.FC<ColorDetectorProps> = ({ onBack, openSettings, voi
                     <TouchableOpacity style={styles.sizeButton} onPress={() => handleReferenceBoxSizeChange(0.05)}>
                       <Text style={styles.sizeButtonText}>+</Text>
                     </TouchableOpacity>
-                    <TouchableOpacity 
-                      style={styles.toggleButton} 
-                      onPress={() => setLeftBoxEnabled(!leftBoxEnabled)}
-                    >
-                      <Text style={styles.toggleButtonText}>{leftBoxEnabled ? '✓' : '⊘'}</Text>
-                    </TouchableOpacity>
                   </View>
-                </View>
-
-                {/* Right box - Color to measure */}
-                <View style={styles.referenceBoxWrapper}>
-                  <View style={[
-                    styles.referenceBox,
-                    { width: getReferenceBoxPixelSize(), height: getReferenceBoxPixelSize() }
-                  ]} />
-                  <Text style={styles.referenceBoxLabel}>Put color to measure here</Text>
                 </View>
               </View>
             )}
