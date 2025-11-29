@@ -9,7 +9,7 @@ import {
   PixelRatio,
   Image,
 } from 'react-native';
-import { SafeAreaView } from 'react-native-safe-area-context';
+import { SafeAreaView, useSafeAreaInsets } from 'react-native-safe-area-context';
 import { styles } from './WelcomeScreen.styles';
 
 interface WelcomeScreenProps {
@@ -17,6 +17,7 @@ interface WelcomeScreenProps {
 }
 const WelcomeScreen: React.FC<WelcomeScreenProps> = ({ onNext }) => {
   const { width } = Dimensions.get('window');
+  const insets = useSafeAreaInsets();
 
   const scale = useMemo(() => {
     const s = width / 375;
@@ -56,7 +57,10 @@ const WelcomeScreen: React.FC<WelcomeScreenProps> = ({ onNext }) => {
   return (
     <SafeAreaView style={styles.container}>
       <StatusBar barStyle="light-content" backgroundColor="#070D0D" />
-      <ScrollView contentContainerStyle={styles.scrollContent}>
+      <ScrollView 
+        contentContainerStyle={styles.scrollContent}
+        showsVerticalScrollIndicator={false}
+      >
         <View style={styles.heroCard}>
           <View style={styles.heroIconWrapper}>
             <Image source={require('../../img/CLogo.png')} style={styles.heroLogo} />
@@ -80,23 +84,25 @@ const WelcomeScreen: React.FC<WelcomeScreenProps> = ({ onNext }) => {
               </View>
             </View>
           ))}
-          <TouchableOpacity
-            style={[
-              styles.nextButton,
-              {
-                paddingVertical: scaled.buttonPaddingVertical,
-                paddingHorizontal: scaled.buttonPaddingHorizontal,
-                borderRadius: Math.max(24, Math.round(28 * scale)),
-              },
-            ]}
-            onPress={onNext}
-            activeOpacity={0.9}
-          >
-            <Text style={styles.nextButtonText}>Start Exploring</Text>
-            <Text style={styles.arrow}>→</Text>
-          </TouchableOpacity>
         </View>
       </ScrollView>
+      <View style={[styles.buttonContainer, { paddingBottom: Math.max(24, insets.bottom) }]}>
+        <TouchableOpacity
+          style={[
+            styles.nextButton,
+            {
+              paddingVertical: scaled.buttonPaddingVertical,
+              paddingHorizontal: scaled.buttonPaddingHorizontal,
+              borderRadius: Math.max(24, Math.round(28 * scale)),
+            },
+          ]}
+          onPress={onNext}
+          activeOpacity={0.9}
+        >
+          <Text style={styles.nextButtonText}>Start Exploring</Text>
+          <Text style={styles.arrow}>→</Text>
+        </TouchableOpacity>
+      </View>
     </SafeAreaView>
   );
 };

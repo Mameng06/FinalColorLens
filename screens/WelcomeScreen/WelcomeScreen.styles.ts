@@ -7,7 +7,7 @@ export const styles = StyleSheet.create({
   },
   scrollContent: {
     padding: 24,
-    paddingBottom: 36,
+    paddingBottom: 100,
   },
   heroCard: {
     backgroundColor: '#070D0D',
@@ -87,8 +87,16 @@ export const styles = StyleSheet.create({
     marginTop: 4,
     lineHeight: 20,
   },
+  buttonContainer: {
+    position: 'absolute',
+    bottom: 0,
+    left: 0,
+    right: 0,
+    padding: 24,
+    paddingTop: 12,
+    backgroundColor: '#FCF8F7',
+  },
   nextButton: {
-    marginTop: 12,
     backgroundColor: '#007FFF',
     flexDirection: 'row',
     alignItems: 'center',
