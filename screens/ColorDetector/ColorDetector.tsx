@@ -102,6 +102,43 @@ const ColorDetector: React.FC<ColorDetectorProps> = ({ onBack, openSettings, voi
   const [debugRightRaw, setDebugRightRaw] = useState<{r:number;g:number;b:number}|null>(null);
   const [debugRightMatch, setDebugRightMatch] = useState<string | null>(null);
 
+  const normalizeRgb = (rgb?: { r: number; g: number; b: number } | null) => {
+    if (
+      !rgb ||
+      !Number.isFinite(rgb.r) ||
+      !Number.isFinite(rgb.g) ||
+      !Number.isFinite(rgb.b)
+    ) {
+      return null;
+    }
+    return {
+      r: Math.round(rgb.r),
+      g: Math.round(rgb.g),
+      b: Math.round(rgb.b),
+    };
+  };
+
+  const applyManualSelection = (
+    sample: { family: string; hex: string; realName: string; confidence?: number },
+    rgb?: { r: number; g: number; b: number } | null
+  ) => {
+    setDetected(sample);
+    setFrozenSnapshot(sample);
+    try {
+      const fromSample = normalizeRgb(rgb);
+      const fallback = normalizeRgb(hexToRgb(sample.hex));
+      setDebugRightRaw(fromSample ?? fallback);
+    } catch (_e) {
+      try { setDebugRightRaw(null); } catch (_ignored) {}
+    }
+  };
+
+  const clearManualSelection = () => {
+    setDetected(null);
+    setFrozenSnapshot(null);
+    try { setDebugRightRaw(null); } catch (_e) {}
+  };
+
   const rollingRightColorsRef = useRef<Array<{r:number;g:number;b:number}>>([]);
 
   const rgbDist = (a: {r:number;g:number;b:number}, b: {r:number;g:number;b:number}) => {
@@ -661,7 +698,7 @@ const ColorDetector: React.FC<ColorDetectorProps> = ({ onBack, openSettings, voi
       try {
         const uploadedRes = await trySampleUploadedImage();
         if (uploadedRes && (uploadedRes as any).offImage) return;
-        if (uploadedRes) { selectedSample = uploadedRes; setDetected(selectedSample); setFrozenSnapshot(selectedSample); }
+        if (uploadedRes) { selectedSample = uploadedRes; applyManualSelection(selectedSample, (uploadedRes as any)?.sourceRgb || null); }
         else {
           if (frozenImageUriRef.current) {
             try {
@@ -669,14 +706,14 @@ const ColorDetector: React.FC<ColorDetectorProps> = ({ onBack, openSettings, voi
               try {
                 const { decodeScaledRegion } = require('../../services/ImageDecoder');
                 const nativeSample = await decodeScaledRegion(uri, relX, relY, previewLayout.current.width || 0, previewLayout.current.height || 0);
-                if (nativeSample) { const match = await findClosestColorAsync([nativeSample.r, nativeSample.g, nativeSample.b], 3).catch(() => null); if (match) { selectedSample = { family: match.closest_match.family || match.closest_match.name, hex: match.closest_match.hex, realName: match.closest_match.name, confidence: match.closest_match.confidence }; setDetected(selectedSample); setFrozenSnapshot(selectedSample); } }
+                if (nativeSample) { const match = await findClosestColorAsync([nativeSample.r, nativeSample.g, nativeSample.b], 3).catch(() => null); if (match) { selectedSample = { family: match.closest_match.family || match.closest_match.name, hex: match.closest_match.hex, realName: match.closest_match.name, confidence: match.closest_match.confidence }; applyManualSelection(selectedSample, nativeSample); } }
               } catch (_e) {
-                try { const RNFS = require('react-native-fs'); const base64 = await RNFS.readFile(uri.replace('file://',''), 'base64'); const sample = _decodeAt(base64, relX, relY, previewLayout.current.width || 0, previewLayout.current.height || 0); if (sample) { const match = await findClosestColorAsync([sample.r, sample.g, sample.b], 3).catch(() => null); if (match) { selectedSample = { family: match.closest_match.family || match.closest_match.name, hex: match.closest_match.hex, realName: match.closest_match.name, confidence: match.closest_match.confidence }; setDetected(selectedSample); setFrozenSnapshot(selectedSample); } } } catch (_e2) {}
+                try { const RNFS = require('react-native-fs'); const base64 = await RNFS.readFile(uri.replace('file://',''), 'base64'); const sample = _decodeAt(base64, relX, relY, previewLayout.current.width || 0, previewLayout.current.height || 0); if (sample) { const match = await findClosestColorAsync([sample.r, sample.g, sample.b], 3).catch(() => null); if (match) { selectedSample = { family: match.closest_match.family || match.closest_match.name, hex: match.closest_match.hex, realName: match.closest_match.name, confidence: match.closest_match.confidence }; applyManualSelection(selectedSample, sample); } } } catch (_e2) {}
               }
             } catch (_e) {}
           }
           if (!selectedSample) {
-            try { const res:any = await captureAndSampleAt(relX, relY); if (res) { selectedSample = res; setDetected(res); setFrozenSnapshot(res); } else { try { const sampled = getFallbackColor(); const rgb = hexToRgb(sampled.hex); const match = findClosestColor(rgb, 3); const c = { family: match.closest_match.family || match.closest_match.name, hex: match.closest_match.hex, realName: match.closest_match.name, confidence: match.closest_match.confidence }; setDetected(c); setFrozenSnapshot(c); selectedSample = c; } catch (err) { const c = getFallbackColor(); setDetected(c); setFrozenSnapshot(c); selectedSample = c; } } } catch (_err) { try { const sampled = getFallbackColor(); const rgb = hexToRgb(sampled.hex); const match = findClosestColor(rgb, 3); const c = { family: match.closest_match.family || match.closest_match.name, hex: match.closest_match.hex, realName: match.closest_match.name, confidence: match.closest_match.confidence }; setDetected(c); setFrozenSnapshot(c); selectedSample = c; } catch (err) { const c = getFallbackColor(); setDetected(c); setFrozenSnapshot(c); selectedSample = c; } }
+            try { const res:any = await captureAndSampleAt(relX, relY); if (res) { selectedSample = res; applyManualSelection(res, res?.sourceRgb || null); } else { try { const sampled = getFallbackColor(); const rgb = hexToRgb(sampled.hex); const match = findClosestColor(rgb, 3); const c = { family: match.closest_match.family || match.closest_match.name, hex: match.closest_match.hex, realName: match.closest_match.name, confidence: match.closest_match.confidence }; applyManualSelection(c); selectedSample = c; } catch (err) { const c = getFallbackColor(); applyManualSelection(c); selectedSample = c; } } } catch (_err) { try { const sampled = getFallbackColor(); const rgb = hexToRgb(sampled.hex); const match = findClosestColor(rgb, 3); const c = { family: match.closest_match.family || match.closest_match.name, hex: match.closest_match.hex, realName: match.closest_match.name, confidence: match.closest_match.confidence }; applyManualSelection(c); selectedSample = c; } catch (err) { const c = getFallbackColor(); applyManualSelection(c); selectedSample = c; } }
           }
         }
         if (selectedSample) try { setCrosshairPos({ x: relX, y: relY }); } catch (_e) {}
@@ -694,8 +731,7 @@ const ColorDetector: React.FC<ColorDetectorProps> = ({ onBack, openSettings, voi
       } catch (_err) {
         try {
           const sampled = getFallbackColor();
-          setDetected(sampled);
-          setFrozenSnapshot(sampled);
+          applyManualSelection(sampled);
           if (voiceEnabled && voiceMode !== 'disable') try { safeSpeak(voiceMode === 'real' ? sampled.realName : sampled.family, { force: true }); suppressSpeechRef.current = false; } catch (_e) {}
         } catch (_e) {}
       }
@@ -718,7 +754,7 @@ const ColorDetector: React.FC<ColorDetectorProps> = ({ onBack, openSettings, voi
       try {
         const uploadedRes = await trySampleUploadedImage();
         if (uploadedRes && (uploadedRes as any).offImage) return;
-        if (uploadedRes) { selectedSample = uploadedRes; setDetected(selectedSample); setFrozenSnapshot(selectedSample); }
+        if (uploadedRes) { selectedSample = uploadedRes; applyManualSelection(selectedSample, (uploadedRes as any)?.sourceRgb || null); }
         else {
           if (frozenImageUriRef.current) {
             try {
@@ -726,14 +762,14 @@ const ColorDetector: React.FC<ColorDetectorProps> = ({ onBack, openSettings, voi
               try {
                 const { decodeScaledRegion } = require('../../services/ImageDecoder');
                 const nativeSample = await decodeScaledRegion(uri, relX, relY, previewLayout.current.width || 0, previewLayout.current.height || 0);
-                if (nativeSample) { const match = await findClosestColorAsync([nativeSample.r, nativeSample.g, nativeSample.b], 3).catch(() => null); if (match) { selectedSample = { family: match.closest_match.family || match.closest_match.name, hex: match.closest_match.hex, realName: match.closest_match.name, confidence: match.closest_match.confidence }; setDetected(selectedSample); setFrozenSnapshot(selectedSample); } }
+                if (nativeSample) { const match = await findClosestColorAsync([nativeSample.r, nativeSample.g, nativeSample.b], 3).catch(() => null); if (match) { selectedSample = { family: match.closest_match.family || match.closest_match.name, hex: match.closest_match.hex, realName: match.closest_match.name, confidence: match.closest_match.confidence }; applyManualSelection(selectedSample, nativeSample); } }
               } catch (_e) {
-                try { const RNFS = require('react-native-fs'); const base64 = await RNFS.readFile(uri.replace('file://',''), 'base64'); const sample = _decodeAt(base64, relX, relY, previewLayout.current.width || 0, previewLayout.current.height || 0); if (sample) { const match = await findClosestColorAsync([sample.r, sample.g, sample.b], 3).catch(() => null); if (match) { selectedSample = { family: match.closest_match.family || match.closest_match.name, hex: match.closest_match.hex, realName: match.closest_match.name, confidence: match.closest_match.confidence }; setDetected(selectedSample); setFrozenSnapshot(selectedSample); } } } catch (_e2) {}
+                try { const RNFS = require('react-native-fs'); const base64 = await RNFS.readFile(uri.replace('file://',''), 'base64'); const sample = _decodeAt(base64, relX, relY, previewLayout.current.width || 0, previewLayout.current.height || 0); if (sample) { const match = await findClosestColorAsync([sample.r, sample.g, sample.b], 3).catch(() => null); if (match) { selectedSample = { family: match.closest_match.family || match.closest_match.name, hex: match.closest_match.hex, realName: match.closest_match.name, confidence: match.closest_match.confidence }; applyManualSelection(selectedSample, sample); } } } catch (_e2) {}
               }
             } catch (_e) {}
           }
           if (!selectedSample) {
-            try { const res:any = await captureAndSampleAt(relX, relY); if (res) { selectedSample = res; setDetected(res); setFrozenSnapshot(res); } else { try { const sampled = getFallbackColor(); const rgb = hexToRgb(sampled.hex); const match = findClosestColor(rgb, 3); const c = { family: match.closest_match.family || match.closest_match.name, hex: match.closest_match.hex, realName: match.closest_match.name, confidence: match.closest_match.confidence }; setDetected(c); setFrozenSnapshot(c); selectedSample = c; } catch (err) { const c = getFallbackColor(); setDetected(c); setFrozenSnapshot(c); selectedSample = c; } } } catch (_err) { try { const sampled = getFallbackColor(); const rgb = hexToRgb(sampled.hex); const match = findClosestColor(rgb, 3); const c = { family: match.closest_match.family || match.closest_match.name, hex: match.closest_match.hex, realName: match.closest_match.name, confidence: match.closest_match.confidence }; setDetected(c); setFrozenSnapshot(c); selectedSample = c; } catch (err) { const c = getFallbackColor(); setDetected(c); setFrozenSnapshot(c); selectedSample = c; } }
+            try { const res:any = await captureAndSampleAt(relX, relY); if (res) { selectedSample = res; applyManualSelection(res, res?.sourceRgb || null); } else { try { const sampled = getFallbackColor(); const rgb = hexToRgb(sampled.hex); const match = findClosestColor(rgb, 3); const c = { family: match.closest_match.family || match.closest_match.name, hex: match.closest_match.hex, realName: match.closest_match.name, confidence: match.closest_match.confidence }; applyManualSelection(c); selectedSample = c; } catch (err) { const c = getFallbackColor(); applyManualSelection(c); selectedSample = c; } } } catch (_err) { try { const sampled = getFallbackColor(); const rgb = hexToRgb(sampled.hex); const match = findClosestColor(rgb, 3); const c = { family: match.closest_match.family || match.closest_match.name, hex: match.closest_match.hex, realName: match.closest_match.name, confidence: match.closest_match.confidence }; applyManualSelection(c); selectedSample = c; } catch (err) { const c = getFallbackColor(); applyManualSelection(c); selectedSample = c; } }
           }
         }
         if (selectedSample) try { setCrosshairPos({ x: relX, y: relY }); } catch (_e) {}
@@ -751,8 +787,7 @@ const ColorDetector: React.FC<ColorDetectorProps> = ({ onBack, openSettings, voi
       } catch (_err) {
         try {
           const sampled = getFallbackColor();
-          setDetected(sampled);
-          setFrozenSnapshot(sampled);
+          applyManualSelection(sampled);
           if (voiceEnabled && voiceMode !== 'disable') try { safeSpeak(voiceMode === 'real' ? sampled.realName : sampled.family, { force: true }); suppressSpeechRef.current = false; } catch (_e) {}
         } catch (_e) {}
       }
@@ -880,8 +915,7 @@ const ColorDetector: React.FC<ColorDetectorProps> = ({ onBack, openSettings, voi
               try { res = await sampleUploadedImageAt(centerX, centerY); } catch (_e) { res = null; }
               if (res && !(res as any).offImage) {
                 selectedSample = res;
-                setDetected(res);
-                setFrozenSnapshot(res);
+                applyManualSelection(res, res?.sourceRgb || null);
                 setFreeze(true);
               } else {
                 if (uri && (uri as string).startsWith('file://')) {
@@ -895,8 +929,7 @@ const ColorDetector: React.FC<ColorDetectorProps> = ({ onBack, openSettings, voi
                         if (match) {
                           const c = { family: match.closest_match.family || match.closest_match.name, hex: match.closest_match.hex, realName: match.closest_match.name };
                           selectedSample = c;
-                          setDetected(c);
-                          setFrozenSnapshot(c);
+                          applyManualSelection(c, centerSample);
                           setFreeze(true);
                         }
                       }
@@ -905,19 +938,21 @@ const ColorDetector: React.FC<ColorDetectorProps> = ({ onBack, openSettings, voi
                 }
 
                 if (!selectedSample) {
-                  setDetected(null);
-                  setFrozenSnapshot(null);
+                  clearManualSelection();
                   selectedSample = null;
                 }
               }
             } catch (err) {
-              setDetected(null);
-              setFrozenSnapshot(null);
+              clearManualSelection();
               selectedSample = null;
             }
 
             if (voiceEnabled && voiceMode !== 'disable' && selectedSample) {
-              try { const textToSpeak = voiceMode === 'real' ? selectedSample.realName : selectedSample.family; safeSpeak(textToSpeak); } catch (err) {}
+              try {
+                const textToSpeak = voiceMode === 'real' ? selectedSample.realName : selectedSample.family;
+                safeSpeak(textToSpeak, { force: true });
+                suppressSpeechRef.current = false;
+              } catch (err) {}
             }
           };
           try {
@@ -1157,7 +1192,13 @@ const ColorDetector: React.FC<ColorDetectorProps> = ({ onBack, openSettings, voi
               const mappedPreviewX = relX;
               const mappedPreviewY = relY;
               
-              return { family: match.closest_match.family || match.closest_match.name, hex: match.closest_match.hex, realName: match.closest_match.name };
+              return {
+                family: match.closest_match.family || match.closest_match.name,
+                hex: match.closest_match.hex,
+                realName: match.closest_match.name,
+                confidence: match.closest_match.confidence,
+                sourceRgb: snapSample,
+              };
             }
           }
         }
@@ -1189,7 +1230,13 @@ const ColorDetector: React.FC<ColorDetectorProps> = ({ onBack, openSettings, voi
               const mappedPreviewY = relY;
             
             } catch (_e) { }
-            return { family: match.closest_match.family || match.closest_match.name, hex: match.closest_match.hex, realName: match.closest_match.name, confidence: match.closest_match.confidence };
+            return {
+              family: match.closest_match.family || match.closest_match.name,
+              hex: match.closest_match.hex,
+              realName: match.closest_match.name,
+              confidence: match.closest_match.confidence,
+              sourceRgb: nativeSample,
+            };
           }
         }
       } catch (_e) {
@@ -1227,7 +1274,13 @@ const ColorDetector: React.FC<ColorDetectorProps> = ({ onBack, openSettings, voi
         if (!centerSample) return null;
         const match = await findClosestColorAsync([centerSample.r, centerSample.g, centerSample.b], 3).catch(() => null);
         if (!match) return null;
-        return { family: match.closest_match.family || match.closest_match.name, hex: match.closest_match.hex, realName: match.closest_match.name, confidence: match.closest_match.confidence };
+        return {
+          family: match.closest_match.family || match.closest_match.name,
+          hex: match.closest_match.hex,
+          realName: match.closest_match.name,
+          confidence: match.closest_match.confidence,
+          sourceRgb: centerSample,
+        };
       }
       const scaled = imageScaledSize;
   if (!scaled) {
@@ -1245,7 +1298,13 @@ const ColorDetector: React.FC<ColorDetectorProps> = ({ onBack, openSettings, voi
         const sampled = { r: Math.round(rSum/count), g: Math.round(gSum/count), b: Math.round(bSum/count) };
         const match = await findClosestColorAsync([sampled.r, sampled.g, sampled.b], 3).catch(() => null);
         if (!match) return null;
-        return { family: match.closest_match.family || match.closest_match.name, hex: match.closest_match.hex, realName: match.closest_match.name };
+        return {
+          family: match.closest_match.family || match.closest_match.name,
+          hex: match.closest_match.hex,
+          realName: match.closest_match.name,
+          confidence: match.closest_match.confidence,
+          sourceRgb: sampled,
+        };
       }
       let panX = 0, panY = 0;
       try { panX = (pan.x as any).__getValue ? (pan.x as any).__getValue() : 0; } catch (_e) { panX = 0; }
@@ -1303,7 +1362,13 @@ const ColorDetector: React.FC<ColorDetectorProps> = ({ onBack, openSettings, voi
   } catch (_e) { }
   const match = await findClosestColorAsync([sampled.r, sampled.g, sampled.b], 3).catch(() => null);
   if (!match) return null;
-  return { family: match.closest_match.family || match.closest_match.name, hex: match.closest_match.hex, realName: match.closest_match.name, confidence: match.closest_match.confidence };
+  return {
+    family: match.closest_match.family || match.closest_match.name,
+    hex: match.closest_match.hex,
+    realName: match.closest_match.name,
+    confidence: match.closest_match.confidence,
+    sourceRgb: sampled,
+  };
     } catch (err) {
       return null;
     }
