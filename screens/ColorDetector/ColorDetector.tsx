@@ -118,19 +118,37 @@ const ColorDetector: React.FC<ColorDetectorProps> = ({ onBack, openSettings, voi
     };
   };
 
+  const rgbArrayToObject = (values?: number[] | null) => {
+    if (!Array.isArray(values) || values.length < 3) return null;
+    return { r: values[0], g: values[1], b: values[2] };
+  };
+
+  const speakSelection = (sample: { family: string; hex: string; realName: string }) => {
+    if (!sample) return;
+    if (!voiceEnabled || voiceMode === 'disable') return;
+    try {
+      const text = voiceMode === 'real' ? sample.realName : sample.family;
+      safeSpeak(text, { force: true });
+      lastSpokenRef.current = Date.now();
+      suppressSpeechRef.current = false;
+    } catch (_err) {}
+  };
+
   const applyManualSelection = (
     sample: { family: string; hex: string; realName: string; confidence?: number },
-    rgb?: { r: number; g: number; b: number } | null
+    rgb?: { r: number; g: number; b: number } | null,
+    opts?: { speak?: boolean }
   ) => {
     setDetected(sample);
     setFrozenSnapshot(sample);
     try {
       const fromSample = normalizeRgb(rgb);
-      const fallback = normalizeRgb(hexToRgb(sample.hex));
+      const fallback = normalizeRgb(rgbArrayToObject(hexToRgb(sample.hex)));
       setDebugRightRaw(fromSample ?? fallback);
     } catch (_e) {
       try { setDebugRightRaw(null); } catch (_ignored) {}
     }
+    if (opts?.speak) speakSelection(sample);
   };
 
   const clearManualSelection = () => {
@@ -698,7 +716,10 @@ const ColorDetector: React.FC<ColorDetectorProps> = ({ onBack, openSettings, voi
       try {
         const uploadedRes = await trySampleUploadedImage();
         if (uploadedRes && (uploadedRes as any).offImage) return;
-        if (uploadedRes) { selectedSample = uploadedRes; applyManualSelection(selectedSample, (uploadedRes as any)?.sourceRgb || null); }
+        if (uploadedRes) {
+          selectedSample = uploadedRes;
+          applyManualSelection(selectedSample, (uploadedRes as any)?.sourceRgb || null, { speak: true });
+        }
         else {
           if (frozenImageUriRef.current) {
             try {
@@ -706,33 +727,70 @@ const ColorDetector: React.FC<ColorDetectorProps> = ({ onBack, openSettings, voi
               try {
                 const { decodeScaledRegion } = require('../../services/ImageDecoder');
                 const nativeSample = await decodeScaledRegion(uri, relX, relY, previewLayout.current.width || 0, previewLayout.current.height || 0);
-                if (nativeSample) { const match = await findClosestColorAsync([nativeSample.r, nativeSample.g, nativeSample.b], 3).catch(() => null); if (match) { selectedSample = { family: match.closest_match.family || match.closest_match.name, hex: match.closest_match.hex, realName: match.closest_match.name, confidence: match.closest_match.confidence }; applyManualSelection(selectedSample, nativeSample); } }
+                if (nativeSample) {
+                  const match = await findClosestColorAsync([nativeSample.r, nativeSample.g, nativeSample.b], 3).catch(() => null);
+                  if (match) {
+                    selectedSample = { family: match.closest_match.family || match.closest_match.name, hex: match.closest_match.hex, realName: match.closest_match.name, confidence: match.closest_match.confidence };
+                    applyManualSelection(selectedSample, nativeSample, { speak: true });
+                  }
+                }
               } catch (_e) {
-                try { const RNFS = require('react-native-fs'); const base64 = await RNFS.readFile(uri.replace('file://',''), 'base64'); const sample = _decodeAt(base64, relX, relY, previewLayout.current.width || 0, previewLayout.current.height || 0); if (sample) { const match = await findClosestColorAsync([sample.r, sample.g, sample.b], 3).catch(() => null); if (match) { selectedSample = { family: match.closest_match.family || match.closest_match.name, hex: match.closest_match.hex, realName: match.closest_match.name, confidence: match.closest_match.confidence }; applyManualSelection(selectedSample, sample); } } } catch (_e2) {}
+                try {
+                  const RNFS = require('react-native-fs');
+                  const base64 = await RNFS.readFile(uri.replace('file://',''), 'base64');
+                  const sample = _decodeAt(base64, relX, relY, previewLayout.current.width || 0, previewLayout.current.height || 0);
+                  if (sample) {
+                    const match = await findClosestColorAsync([sample.r, sample.g, sample.b], 3).catch(() => null);
+                    if (match) {
+                      selectedSample = { family: match.closest_match.family || match.closest_match.name, hex: match.closest_match.hex, realName: match.closest_match.name, confidence: match.closest_match.confidence };
+                      applyManualSelection(selectedSample, sample, { speak: true });
+                    }
+                  }
+                } catch (_e2) {}
               }
             } catch (_e) {}
           }
           if (!selectedSample) {
-            try { const res:any = await captureAndSampleAt(relX, relY); if (res) { selectedSample = res; applyManualSelection(res, res?.sourceRgb || null); } else { try { const sampled = getFallbackColor(); const rgb = hexToRgb(sampled.hex); const match = findClosestColor(rgb, 3); const c = { family: match.closest_match.family || match.closest_match.name, hex: match.closest_match.hex, realName: match.closest_match.name, confidence: match.closest_match.confidence }; applyManualSelection(c); selectedSample = c; } catch (err) { const c = getFallbackColor(); applyManualSelection(c); selectedSample = c; } } } catch (_err) { try { const sampled = getFallbackColor(); const rgb = hexToRgb(sampled.hex); const match = findClosestColor(rgb, 3); const c = { family: match.closest_match.family || match.closest_match.name, hex: match.closest_match.hex, realName: match.closest_match.name, confidence: match.closest_match.confidence }; applyManualSelection(c); selectedSample = c; } catch (err) { const c = getFallbackColor(); applyManualSelection(c); selectedSample = c; } }
+            try {
+              const res:any = await captureAndSampleAt(relX, relY);
+              if (res) {
+                selectedSample = res;
+                applyManualSelection(res, res?.sourceRgb || null, { speak: true });
+              } else {
+                try {
+                  const sampled = getFallbackColor();
+                  const rgb = hexToRgb(sampled.hex);
+                  const match = findClosestColor(rgb, 3);
+                  const c = { family: match.closest_match.family || match.closest_match.name, hex: match.closest_match.hex, realName: match.closest_match.name, confidence: match.closest_match.confidence };
+                  applyManualSelection(c, rgbArrayToObject(rgb), { speak: true });
+                  selectedSample = c;
+                } catch (err) {
+                  const c = getFallbackColor();
+                  applyManualSelection(c, null, { speak: true });
+                  selectedSample = c;
+                }
+              }
+            } catch (_err) {
+              try {
+                const sampled = getFallbackColor();
+                const rgb = hexToRgb(sampled.hex);
+                const match = findClosestColor(rgb, 3);
+                const c = { family: match.closest_match.family || match.closest_match.name, hex: match.closest_match.hex, realName: match.closest_match.name, confidence: match.closest_match.confidence };
+                applyManualSelection(c, rgbArrayToObject(rgb), { speak: true });
+                selectedSample = c;
+              } catch (err) {
+                const c = getFallbackColor();
+                applyManualSelection(c, null, { speak: true });
+                selectedSample = c;
+              }
+            }
           }
         }
         if (selectedSample) try { setCrosshairPos({ x: relX, y: relY }); } catch (_e) {}
-        if (voiceEnabled && voiceMode !== 'disable' && selectedSample) {
-          try {
-            const textToSpeak = voiceMode === 'real' ? selectedSample.realName : selectedSample.family;
-            try { freezeSpeakTimersRef.current.forEach((tid) => { try { clearTimeout(tid as any); } catch (_e) {} }); } catch (_e) {}
-            freezeSpeakTimersRef.current = [];
-            try { stopTts(); } catch (_e) {}
-            const ok = safeSpeak(textToSpeak, { force: true });
-            lastSpokenRef.current = Date.now();
-            suppressSpeechRef.current = false;
-          } catch (err) {}
-        }
       } catch (_err) {
         try {
           const sampled = getFallbackColor();
-          applyManualSelection(sampled);
-          if (voiceEnabled && voiceMode !== 'disable') try { safeSpeak(voiceMode === 'real' ? sampled.realName : sampled.family, { force: true }); suppressSpeechRef.current = false; } catch (_e) {}
+          applyManualSelection(sampled, null, { speak: true });
         } catch (_e) {}
       }
     } catch (err) {}
@@ -754,7 +812,10 @@ const ColorDetector: React.FC<ColorDetectorProps> = ({ onBack, openSettings, voi
       try {
         const uploadedRes = await trySampleUploadedImage();
         if (uploadedRes && (uploadedRes as any).offImage) return;
-        if (uploadedRes) { selectedSample = uploadedRes; applyManualSelection(selectedSample, (uploadedRes as any)?.sourceRgb || null); }
+        if (uploadedRes) {
+          selectedSample = uploadedRes;
+          applyManualSelection(selectedSample, (uploadedRes as any)?.sourceRgb || null, { speak: true });
+        }
         else {
           if (frozenImageUriRef.current) {
             try {
@@ -762,33 +823,70 @@ const ColorDetector: React.FC<ColorDetectorProps> = ({ onBack, openSettings, voi
               try {
                 const { decodeScaledRegion } = require('../../services/ImageDecoder');
                 const nativeSample = await decodeScaledRegion(uri, relX, relY, previewLayout.current.width || 0, previewLayout.current.height || 0);
-                if (nativeSample) { const match = await findClosestColorAsync([nativeSample.r, nativeSample.g, nativeSample.b], 3).catch(() => null); if (match) { selectedSample = { family: match.closest_match.family || match.closest_match.name, hex: match.closest_match.hex, realName: match.closest_match.name, confidence: match.closest_match.confidence }; applyManualSelection(selectedSample, nativeSample); } }
+                if (nativeSample) {
+                  const match = await findClosestColorAsync([nativeSample.r, nativeSample.g, nativeSample.b], 3).catch(() => null);
+                  if (match) {
+                    selectedSample = { family: match.closest_match.family || match.closest_match.name, hex: match.closest_match.hex, realName: match.closest_match.name, confidence: match.closest_match.confidence };
+                    applyManualSelection(selectedSample, nativeSample, { speak: true });
+                  }
+                }
               } catch (_e) {
-                try { const RNFS = require('react-native-fs'); const base64 = await RNFS.readFile(uri.replace('file://',''), 'base64'); const sample = _decodeAt(base64, relX, relY, previewLayout.current.width || 0, previewLayout.current.height || 0); if (sample) { const match = await findClosestColorAsync([sample.r, sample.g, sample.b], 3).catch(() => null); if (match) { selectedSample = { family: match.closest_match.family || match.closest_match.name, hex: match.closest_match.hex, realName: match.closest_match.name, confidence: match.closest_match.confidence }; applyManualSelection(selectedSample, sample); } } } catch (_e2) {}
+                try {
+                  const RNFS = require('react-native-fs');
+                  const base64 = await RNFS.readFile(uri.replace('file://',''), 'base64');
+                  const sample = _decodeAt(base64, relX, relY, previewLayout.current.width || 0, previewLayout.current.height || 0);
+                  if (sample) {
+                    const match = await findClosestColorAsync([sample.r, sample.g, sample.b], 3).catch(() => null);
+                    if (match) {
+                      selectedSample = { family: match.closest_match.family || match.closest_match.name, hex: match.closest_match.hex, realName: match.closest_match.name, confidence: match.closest_match.confidence };
+                      applyManualSelection(selectedSample, sample, { speak: true });
+                    }
+                  }
+                } catch (_e2) {}
               }
             } catch (_e) {}
           }
           if (!selectedSample) {
-            try { const res:any = await captureAndSampleAt(relX, relY); if (res) { selectedSample = res; applyManualSelection(res, res?.sourceRgb || null); } else { try { const sampled = getFallbackColor(); const rgb = hexToRgb(sampled.hex); const match = findClosestColor(rgb, 3); const c = { family: match.closest_match.family || match.closest_match.name, hex: match.closest_match.hex, realName: match.closest_match.name, confidence: match.closest_match.confidence }; applyManualSelection(c); selectedSample = c; } catch (err) { const c = getFallbackColor(); applyManualSelection(c); selectedSample = c; } } } catch (_err) { try { const sampled = getFallbackColor(); const rgb = hexToRgb(sampled.hex); const match = findClosestColor(rgb, 3); const c = { family: match.closest_match.family || match.closest_match.name, hex: match.closest_match.hex, realName: match.closest_match.name, confidence: match.closest_match.confidence }; applyManualSelection(c); selectedSample = c; } catch (err) { const c = getFallbackColor(); applyManualSelection(c); selectedSample = c; } }
+            try {
+              const res:any = await captureAndSampleAt(relX, relY);
+              if (res) {
+                selectedSample = res;
+                applyManualSelection(res, res?.sourceRgb || null, { speak: true });
+              } else {
+                try {
+                  const sampled = getFallbackColor();
+                  const rgb = hexToRgb(sampled.hex);
+                  const match = findClosestColor(rgb, 3);
+                  const c = { family: match.closest_match.family || match.closest_match.name, hex: match.closest_match.hex, realName: match.closest_match.name, confidence: match.closest_match.confidence };
+                  applyManualSelection(c, rgbArrayToObject(rgb), { speak: true });
+                  selectedSample = c;
+                } catch (err) {
+                  const c = getFallbackColor();
+                  applyManualSelection(c, null, { speak: true });
+                  selectedSample = c;
+                }
+              }
+            } catch (_err) {
+              try {
+                const sampled = getFallbackColor();
+                const rgb = hexToRgb(sampled.hex);
+                const match = findClosestColor(rgb, 3);
+                const c = { family: match.closest_match.family || match.closest_match.name, hex: match.closest_match.hex, realName: match.closest_match.name, confidence: match.closest_match.confidence };
+                applyManualSelection(c, rgbArrayToObject(rgb), { speak: true });
+                selectedSample = c;
+              } catch (err) {
+                const c = getFallbackColor();
+                applyManualSelection(c, null, { speak: true });
+                selectedSample = c;
+              }
+            }
           }
         }
         if (selectedSample) try { setCrosshairPos({ x: relX, y: relY }); } catch (_e) {}
-        if (voiceEnabled && voiceMode !== 'disable' && selectedSample) {
-          try {
-            const textToSpeak = voiceMode === 'real' ? selectedSample.realName : selectedSample.family;
-            try { freezeSpeakTimersRef.current.forEach((tid) => { try { clearTimeout(tid as any); } catch (_e) {} }); } catch (_e) {}
-            freezeSpeakTimersRef.current = [];
-            try { stopTts(); } catch (_e) {}
-            const ok = safeSpeak(textToSpeak, { force: true });
-            lastSpokenRef.current = Date.now();
-            suppressSpeechRef.current = false;
-          } catch (err) {}
-        }
       } catch (_err) {
         try {
           const sampled = getFallbackColor();
-          applyManualSelection(sampled);
-          if (voiceEnabled && voiceMode !== 'disable') try { safeSpeak(voiceMode === 'real' ? sampled.realName : sampled.family, { force: true }); suppressSpeechRef.current = false; } catch (_e) {}
+          applyManualSelection(sampled, null, { speak: true });
         } catch (_e) {}
       }
     } catch (err) {}
@@ -915,7 +1013,7 @@ const ColorDetector: React.FC<ColorDetectorProps> = ({ onBack, openSettings, voi
               try { res = await sampleUploadedImageAt(centerX, centerY); } catch (_e) { res = null; }
               if (res && !(res as any).offImage) {
                 selectedSample = res;
-                applyManualSelection(res, res?.sourceRgb || null);
+                applyManualSelection(res, res?.sourceRgb || null, { speak: true });
                 setFreeze(true);
               } else {
                 if (uri && (uri as string).startsWith('file://')) {
@@ -929,7 +1027,7 @@ const ColorDetector: React.FC<ColorDetectorProps> = ({ onBack, openSettings, voi
                         if (match) {
                           const c = { family: match.closest_match.family || match.closest_match.name, hex: match.closest_match.hex, realName: match.closest_match.name };
                           selectedSample = c;
-                          applyManualSelection(c, centerSample);
+                          applyManualSelection(c, centerSample, { speak: true });
                           setFreeze(true);
                         }
                       }
@@ -947,13 +1045,6 @@ const ColorDetector: React.FC<ColorDetectorProps> = ({ onBack, openSettings, voi
               selectedSample = null;
             }
 
-            if (voiceEnabled && voiceMode !== 'disable' && selectedSample) {
-              try {
-                const textToSpeak = voiceMode === 'real' ? selectedSample.realName : selectedSample.family;
-                safeSpeak(textToSpeak, { force: true });
-                suppressSpeechRef.current = false;
-              } catch (err) {}
-            }
           };
           try {
             await processWithIndicator(setProcessing, doProcessing);
