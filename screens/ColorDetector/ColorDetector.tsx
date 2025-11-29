@@ -11,8 +11,8 @@ try {
 let captureRef: any = null;
 try { captureRef = require('react-native-view-shot').captureRef; } catch (_e) { captureRef = null; }
 import { ICONS } from '../../Images';
-import { styles, REFERENCE_BOX_DEFAULT_SIZE, REFERENCE_BOX_MIN_SIZE, REFERENCE_BOX_MAX_SIZE, PIXELS_PER_INCH, rf } from './ColorDetector.styles';
-import { getFallbackColor, getJpegUtils, getJpegOrientation, decodeJpegAndSampleCenter as _decodeCenter, decodeJpegAndSampleAt as _decodeAt, hexToRgb, rgbToHex, processWithIndicator, mapPressToPreviewCoords, mapLocalPressToPreviewCoords, isWhiteSurface, getWhiteSurfaceStatus, medianRgb, computeSimpleWhiteGains, setCalibratedGains, getCalibratedGains, applySimpleWhiteBalanceCorrection, fractionWhiteInSamples } from './ColorDetectorLogic';
+import { styles, rf } from './ColorDetector.styles';
+import { getFallbackColor, getJpegUtils, getJpegOrientation, decodeJpegAndSampleCenter as _decodeCenter, decodeJpegAndSampleAt as _decodeAt, hexToRgb, rgbToHex, processWithIndicator, mapPressToPreviewCoords, mapLocalPressToPreviewCoords, medianRgb } from './ColorDetectorLogic';
 import { findClosestColor } from '../../services/ColorMatcher';
 import { findClosestColorAsync } from '../../services/ColorMatcherWorker';
 import { inferColorFromRGB } from '../../services/ColorDetectorInference';
@@ -77,26 +77,12 @@ const ColorDetector: React.FC<ColorDetectorProps> = ({ onBack, openSettings, voi
   const permissionInitializedRef = useRef(false);
   const exitAppPendingRef = useRef(false);
 
-  // Reference box states
-  const [referenceBoxSizeInches, setReferenceBoxSizeInches] = useState<number>(REFERENCE_BOX_DEFAULT_SIZE);
-  const [leftBoxEnabled, setLeftBoxEnabled] = useState<boolean>(true);
-  const leftBoxEnabledRef = useRef<boolean>(true); // Keep in sync with state for use in async functions
-  const [referenceBoxSamples, setReferenceBoxSamples] = useState<{left: {r:number,g:number,b:number}|null, right: {r:number,g:number,b:number}|null}>({left: null, right: null});
-  const [whiteBalanceStatus, setWhiteBalanceStatus] = useState<{ status: 'ok' | 'too_dark' | 'not_white', message: string }>({ status: 'ok', message: '' });
-  const lastWarningSpokenRef = useRef<number>(0);
-  
   // Calibration: gains are stored in ColorDetectorLogic; use getCalibratedGains()
   const [cameraExposureLocked, setCameraExposureLocked] = useState<boolean>(false);
-  const WARNING_SPEAK_COOLDOWN = 2000;
 
   const processingFrameRef = useRef(false);
-  const leftWhiteHistoryRef = useRef<number[]>([]);
-  const LEFT_WHITE_HISTORY_SIZE = 5;
-  const LEFT_WHITE_REQUIRED = 3; // need at least 3 of last 5 frames
 
   // Debug overlay state
-  const [debugLeftMedian, setDebugLeftMedian] = useState<{r:number;g:number;b:number}|null>(null);
-  const [debugLeftFraction, setDebugLeftFraction] = useState<number|null>(null);
   const [debugGains, setDebugGains] = useState<{gr:number;gg:number;gb:number}|null>(null);
   const [debugCorrectedRight, setDebugCorrectedRight] = useState<{r:number;g:number;b:number}|null>(null);
   const [debugRightRaw, setDebugRightRaw] = useState<{r:number;g:number;b:number}|null>(null);
@@ -188,16 +174,6 @@ const ColorDetector: React.FC<ColorDetectorProps> = ({ onBack, openSettings, voi
     return samples.filter(s => rgbDist(s, med) <= threshold);
   };
 
-  const pushLeftWhiteHistory = (isWhite: boolean) => {
-    try {
-      const arr = leftWhiteHistoryRef.current || [];
-      arr.push(isWhite ? 1 : 0);
-      while (arr.length > LEFT_WHITE_HISTORY_SIZE) arr.shift();
-      leftWhiteHistoryRef.current = arr;
-      const sum = arr.reduce((s,n) => s + n, 0);
-      return sum >= LEFT_WHITE_REQUIRED;
-    } catch (_e) { return !!isWhite; }
-  };
 
   const safeSpeak = (text: string, opts?: { force?: boolean }) => {
     try { if (suppressSpeechRef.current && !(opts && opts.force)) return false; } catch (_e) {}
@@ -209,45 +185,6 @@ const ColorDetector: React.FC<ColorDetectorProps> = ({ onBack, openSettings, voi
     }
   };
 
-  const safeWarningSpeak = (text: string) => {
-    try {
-      // Never speak warnings if left box is disabled
-      if (!leftBoxEnabled || suppressSpeechRef.current) return false;
-      const now = Date.now();
-      if (now - lastWarningSpokenRef.current < WARNING_SPEAK_COOLDOWN) return false;
-      const res = speak(text);
-      lastWarningSpokenRef.current = now;
-      return res;
-    } catch (err) {
-      return false;
-    }
-  };
-
-  const updateWhiteBalanceStatus = (r: number, g: number, b: number) => {
-    // If left box is disabled, NEVER set any warning or speak anything
-    try {
-      if (!leftBoxEnabled) {
-        // Aggressively clear status and suppress all speech
-        setWhiteBalanceStatus({ status: 'ok', message: '' });
-        suppressSpeechRef.current = true;
-        return;
-      }
-      const status = getWhiteSurfaceStatus(r, g, b, Boolean(getCalibratedGains()));
-      setWhiteBalanceStatus(status);
-      // Speak warning only when left-box is enabled and voice is enabled
-      if (status.status !== 'ok' && voiceEnabled) {
-        // Allow warning speech only when left box is explicitly enabled
-        suppressSpeechRef.current = false;
-        safeWarningSpeak(status.message);
-      }
-    } catch (_e) {
-      // On error, do not surface a warning if left box is disabled
-      if (!leftBoxEnabled) {
-        setWhiteBalanceStatus({ status: 'ok', message: '' });
-        suppressSpeechRef.current = true;
-      }
-    }
-  };
 
   // Calibration is automatic: computed and stored in ColorDetectorLogic when left box is detected as white
 
@@ -270,38 +207,11 @@ const ColorDetector: React.FC<ColorDetectorProps> = ({ onBack, openSettings, voi
     }
   };
 
-  const handleReferenceBoxSizeChange = (delta: number) => {
-    const newSize = Math.max(REFERENCE_BOX_MIN_SIZE, Math.min(REFERENCE_BOX_MAX_SIZE, referenceBoxSizeInches + delta));
-    setReferenceBoxSizeInches(newSize);
-  };
-
-  const getReferenceBoxPixelSize = (): number => {
-    return referenceBoxSizeInches * PIXELS_PER_INCH;
-  };
 
   useEffect(() => { 
     try { initTts(); } catch (_e) {} 
     lockCameraExposure();
   }, []);
-  // If the user disables the left box, immediately clear any white warnings and stop TTS
-  useEffect(() => {
-    try {
-      leftBoxEnabledRef.current = leftBoxEnabled; // Keep ref in sync
-      if (!leftBoxEnabled) {
-        // Aggressively suppress all speech immediately at the TTS level
-        setSuppressed(true);
-        suppressSpeechRef.current = true;
-        try { stopTts(); } catch (_e) {}
-        // Multiple attempts to stop TTS to ensure it's silenced
-        setTimeout(() => { try { stopTts(); } catch (_e) {} }, 50);
-        setTimeout(() => { try { stopTts(); } catch (_e) {} }, 150);
-        setWhiteBalanceStatus({ status: 'ok', message: '' });
-      } else {
-        // Re-enable TTS when left box is turned back on
-        setSuppressed(false);
-      }
-    } catch (_e) {}
-  }, [leftBoxEnabled]);
   useEffect(() => { exitAppPendingRef.current = false; }, []);
 
   const processSnapshotAndSample = async (): Promise<boolean> => {
@@ -326,13 +236,6 @@ const ColorDetector: React.FC<ColorDetectorProps> = ({ onBack, openSettings, voi
       let base64: string | null = null;
       // clear previous per-pass debug entries
       try { setDebugRightRaw(null); setDebugRightMatch(null); } catch (_e) {}
-      // Clear any left-box debug/white status (no longer used)
-      try {
-        try { setDebugLeftMedian(null); } catch (_e) {}
-        try { setDebugLeftFraction(null); } catch (_e) {}
-        try { leftWhiteHistoryRef.current = []; } catch (_e) {}
-        try { setWhiteBalanceStatus({ status: 'ok', message: '' }); } catch (_e) {}
-      } catch (_e) {}
       let uri: string | undefined = blobLike?.path || blobLike?.uri || blobLike?.localUri || blobLike?.filePath || blobLike?.file;
       try { if (uri && typeof uri === 'string' && uri.startsWith('/')) uri = 'file://' + uri; } catch (_e) {}
       try {
