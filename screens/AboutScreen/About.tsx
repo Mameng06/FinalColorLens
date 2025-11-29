@@ -89,7 +89,7 @@ const AboutScreen: React.FC<AboutScreenProps> = ({ onBack, onDone }) => {
         </View>
       </ScrollView>
 
-      <TouchableOpacity style={[styles.primaryButton, { marginBottom: (insets.bottom || 0) + 16 }]} onPress={handleDone} activeOpacity={0.9}>
+      <TouchableOpacity style={[styles.primaryButton, { bottom: (insets.bottom || 0) + 16 }]} onPress={handleDone} activeOpacity={0.9}>
         <Text style={styles.primaryButtonText}>Got It!  ✓</Text>
       </TouchableOpacity>
     </View>
@@ -97,5 +97,6 @@ const AboutScreen: React.FC<AboutScreenProps> = ({ onBack, onDone }) => {
 };
 
 export default AboutScreen;
+
 
 
