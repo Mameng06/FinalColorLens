@@ -1685,24 +1685,24 @@ const ColorDetector: React.FC<ColorDetectorProps> = ({ onBack, openSettings, voi
               <Text style={styles.crosshairHint}>Aim the crosshair to the color you want to detect.</Text>
             )}
           </View>
-          
-          {selectedImageUri && (
-            <View style={styles.adjustArea} pointerEvents="box-none">
-              <TouchableOpacity style={styles.adjustButton} onPress={onAdjustToggle} activeOpacity={0.85}>
-                <View style={styles.adjustButtonContent}>
-                  <Image source={ICONS.HANDicon} style={styles.adjustIcon} />
-                  <Text style={styles.adjustText}>{adjusting ? 'Done' : 'Adjust Image'}</Text>
-                </View>
-              </TouchableOpacity>
-              {adjusting && (
-                <View style={styles.adjustHelp}>
-                  <Text style={styles.adjustHelpText}>Drag the image to position it so the area you want to sample is visible under the crosshair. Tap done when finished.</Text>
-                </View>
-              )}
+        </View>
+      </TouchableWithoutFeedback>
+      
+      {selectedImageUri && (
+        <View style={styles.adjustArea} pointerEvents="box-none">
+          <TouchableOpacity style={styles.adjustButton} onPress={onAdjustToggle} activeOpacity={0.85}>
+            <View style={styles.adjustButtonContent}>
+              <Image source={ICONS.HANDicon} style={styles.adjustIcon} />
+              <Text style={styles.adjustText}>{adjusting ? 'Done' : 'Adjust Image'}</Text>
+            </View>
+          </TouchableOpacity>
+          {adjusting && (
+            <View style={styles.adjustHelp}>
+              <Text style={styles.adjustHelpText}>Drag the image to position it so the area you want to sample is visible under the crosshair. Tap done when finished.</Text>
             </View>
           )}
         </View>
-      </TouchableWithoutFeedback>
+      )}
 
         {processing && (
           <View style={styles.processingOverlay} pointerEvents="box-none">

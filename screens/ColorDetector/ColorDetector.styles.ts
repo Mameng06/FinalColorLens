@@ -16,7 +16,7 @@ export const CROSSHAIR_DOT_BORDER = 2;
 export const CROSSHAIR_CONTAINER_SIZE = CROSSHAIR_DOT_SIZE + CROSSHAIR_DOT_BORDER * 2;
 
 export const styles = StyleSheet.create({
-  container: { flex: 1, backgroundColor: '#F5F5F0' },
+  container: { flex: 1, backgroundColor: '#F5F5F0', position: 'relative' },
   header: { flexDirection: 'row', justifyContent: 'flex-end', alignItems: 'center', padding: rf(14) },
   headerSpacer: { flex: 1 },
   backButton: { width: rf(48), height: rf(48), borderRadius: rf(24), justifyContent: 'center', alignItems: 'center', backgroundColor: '#000' },
@@ -66,8 +66,8 @@ export const styles = StyleSheet.create({
   uploadIcon: { width: rf(20), height: rf(20), marginRight: rf(8), tintColor: '#fff', resizeMode: 'contain' },
   uploadButtonText: { color: '#fff', fontWeight: '700', fontSize: rf(16) },
   thumbnail: { width: rf(72), height: rf(72), borderRadius: 10, marginLeft: rf(12), borderWidth: 1, borderColor: '#EEE' },
-  adjustArea: { width: '100%', alignItems: 'flex-end', marginTop: rf(8), paddingRight: rf(8), zIndex: 999999, elevation: 50 },
-  adjustButton: { backgroundColor: '#fff', paddingVertical: rf(10), paddingHorizontal: rf(12), borderRadius: rf(26), elevation: 6, shadowColor: '#000', shadowOffset: { width: 0, height: 2 }, shadowOpacity: 0.12, shadowRadius: 6 },
+  adjustArea: { position: 'absolute', top: rf(60), right: rf(8), alignItems: 'flex-end', zIndex: 999999, elevation: 50, pointerEvents: 'box-none' },
+  adjustButton: { backgroundColor: '#fff', paddingVertical: rf(10), paddingHorizontal: rf(12), borderRadius: rf(26), elevation: 8, shadowColor: '#000', shadowOffset: { width: 0, height: 2 }, shadowOpacity: 0.12, shadowRadius: 6, zIndex: 1000000 },
   adjustButtonContent: { flexDirection: 'row', alignItems: 'center' },
   adjustIcon: { width: rf(20), height: rf(20), marginRight: rf(8), tintColor: '#6A0DAF', resizeMode: 'contain' },
   adjustText: { color: '#6A0DAF', fontWeight: '700', fontSize: rf(15) },
