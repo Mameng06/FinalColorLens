@@ -686,7 +686,7 @@ const ColorDetector: React.FC<ColorDetectorProps> = ({ onBack, openSettings, voi
               previewLayout.current = { x: px, y: py, width: pw, height: ph };
               const center = { x: pw / 2, y: ph / 2 };
               setCrosshairPos(center);
-              setFrozenSnapshot(liveDetected);
+              setFrozenSnapshot(liveDetected ?? detected);
               (async () => {
                 try {
                   const ref: any = cameraRef.current;
@@ -1757,8 +1757,8 @@ const ColorDetector: React.FC<ColorDetectorProps> = ({ onBack, openSettings, voi
               <Text style={styles.uploadButtonText}>Upload Image</Text>
             </View>
           </TouchableOpacity>
-          <TouchableOpacity style={styles.freezeButton} onPress={toggleFreeze} activeOpacity={0.8}>
-            <Text style={styles.freezeButtonText}>Freeze Frame</Text>
+          <TouchableOpacity style={freeze ? styles.unfreezeButton : styles.freezeButton} onPress={toggleFreeze} activeOpacity={0.8}>
+            <Text style={styles.freezeButtonText}>{freeze ? 'Unfreeze' : 'Freeze Frame'}</Text>
           </TouchableOpacity>
         </View>
     </View>
