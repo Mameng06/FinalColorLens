@@ -49,7 +49,6 @@ export const styles = StyleSheet.create({
   crosshairDot: { width: CROSSHAIR_DOT_SIZE, height: CROSSHAIR_DOT_SIZE, borderRadius: Math.round(CROSSHAIR_DOT_SIZE/2), backgroundColor: 'rgba(255,0,0,0.95)', borderWidth: 0, elevation: 6, shadowColor: '#000', shadowOffset: { width: 0, height: 2 }, shadowOpacity: 0.25, shadowRadius: 4 },
   infoArea: { paddingHorizontal: rf(20), paddingTop: rf(16), paddingBottom: 0, backgroundColor: '#F5F5F0', minHeight: rf(100) },
   colorInfoContainer: { flexDirection: 'column', alignItems: 'flex-start', marginBottom: 0, width: '100%' },
-  colorInfoContainer: { flexDirection: 'column', alignItems: 'flex-start', marginBottom: rf(20), width: '100%' },
   colorSwatchContainer: { marginBottom: rf(12), alignItems: 'flex-start', justifyContent: 'center', width: '100%' },
   colorSwatch: { width: rf(70), height: rf(70), borderRadius: rf(6), borderWidth: 0 },
   colorInfoText: { width: '100%', justifyContent: 'flex-start', minHeight: rf(80) },
@@ -85,6 +84,7 @@ export const styles = StyleSheet.create({
   processingText: { fontSize: rf(15), color: '#111', marginTop: rf(8), fontWeight: '600' },
   tapMarkerRoot: { position: 'absolute', left: 0, top: 0, width: '100%', height: '100%', pointerEvents: 'none' },
   tapMarkerDot: { position: 'absolute', width: rf(18), height: rf(18), borderRadius: rf(9), backgroundColor: 'rgba(0,200,80,0.95)', borderWidth: 2, borderColor: '#fff', elevation: 8, shadowColor: '#000', shadowOffset: { width: 0, height: 2 }, shadowOpacity: 0.25, shadowRadius: 4 },
+  debugSamplingBox: { position: 'absolute', borderWidth: 3, borderColor: '#00FF00', backgroundColor: 'rgba(0,255,0,0.15)', borderRadius: 2, zIndex: 1000, elevation: 10 },
   
   // Reference boxes styles
   referenceBoxContainer: { position: 'absolute', bottom: rf(12), left: 0, right: 0, flexDirection: 'row', justifyContent: 'center', alignItems: 'flex-end', elevation: 20 },

@@ -134,6 +134,7 @@ const ColorDetector: React.FC<ColorDetectorProps> = ({ onBack, openSettings, voi
   const [debugCorrectedRight, setDebugCorrectedRight] = useState<{r:number;g:number;b:number}|null>(null);
   const [debugRightRaw, setDebugRightRaw] = useState<{r:number;g:number;b:number}|null>(null);
   const [debugRightMatch, setDebugRightMatch] = useState<string | null>(null);
+  const [debugSamplingBox, setDebugSamplingBox] = useState<{x:number, y:number, width:number, height:number} | null>(null);
 
   const normalizeRgb = (rgb?: { r: number; g: number; b: number } | null) => {
     if (
@@ -358,7 +359,7 @@ const ColorDetector: React.FC<ColorDetectorProps> = ({ onBack, openSettings, voi
       if (!blobLike) { processingFrameRef.current = false; return false; }
       let base64: string | null = null;
       // clear previous per-pass debug entries
-      try { setDebugRightRaw(null); setDebugRightMatch(null); } catch (_e) {}
+      try { setDebugRightRaw(null); setDebugRightMatch(null); setDebugSamplingBox(null); } catch (_e) {}
       // Clear any left-box debug/white status (no longer used)
       try {
         try { setDebugLeftMedian(null); } catch (_e) {}
@@ -385,6 +386,9 @@ const ColorDetector: React.FC<ColorDetectorProps> = ({ onBack, openSettings, voi
               console.log(`[ColorDetector Native] Attempting native decode grid around center (${centerBoxRelX.toFixed(0)}, ${centerBoxRelY.toFixed(0)})`);
               const gridRadius = Math.max(2, Math.floor(Math.min(pw, ph) * 0.03));
               const steps = 2; // 5x5 grid
+              // Set debug box to show sampling area
+              const boxSize = gridRadius * steps * 2;
+              setDebugSamplingBox({ x: centerBoxRelX - boxSize/2, y: centerBoxRelY - boxSize/2, width: boxSize, height: boxSize });
               const nativeCenterSamples: Array<{r:number;g:number;b:number}> = [];
               for (let gy = -steps; gy <= steps; gy++) {
                 for (let gx = -steps; gx <= steps; gx++) {
@@ -497,6 +501,15 @@ const ColorDetector: React.FC<ColorDetectorProps> = ({ onBack, openSettings, voi
         const cx = Math.floor(w * 0.5);
         const cy = Math.floor(h * 0.6);
         const cRadius = Math.floor(Math.min(w, h) * 0.06);
+        // Set debug box to show sampling area (convert from image coords to preview coords)
+        if (previewSize) {
+          const pw = previewLayout.current?.width || previewSize.width;
+          const ph = previewLayout.current?.height || previewSize.height;
+          const centerBoxRelX = pw * 0.5;
+          const centerBoxRelY = ph * 0.6;
+          const boxSize = (cRadius * 2) * (pw / w); // Scale radius to preview size
+          setDebugSamplingBox({ x: centerBoxRelX - boxSize/2, y: centerBoxRelY - boxSize/2, width: boxSize, height: boxSize });
+        }
         const centerSamples: Array<{r:number;g:number;b:number}> = [];
         for (let yy = Math.max(0, cy - cRadius); yy <= Math.min(h-1, cy + cRadius); yy++) {
           for (let xx = Math.max(0, cx - cRadius); xx <= Math.min(w-1, cx + cRadius); xx++) {
@@ -672,6 +685,7 @@ const ColorDetector: React.FC<ColorDetectorProps> = ({ onBack, openSettings, voi
       setFrozenSnapshot(null);
       frozenImageUriRef.current = null;
       setSelectedImageUri(null);
+      setDebugSamplingBox(null);
       if (previewSize) {
         setCrosshairPos({ x: previewSize.width / 2, y: previewSize.height / 2 });
       } else {
@@ -1680,6 +1694,20 @@ const ColorDetector: React.FC<ColorDetectorProps> = ({ onBack, openSettings, voi
                    </View>
                  </View>
                )}
+              {debugSamplingBox && (
+                <View
+                  pointerEvents="none"
+                  style={[
+                    styles.debugSamplingBox,
+                    {
+                      left: debugSamplingBox.x,
+                      top: debugSamplingBox.y,
+                      width: debugSamplingBox.width,
+                      height: debugSamplingBox.height,
+                    },
+                  ]}
+                />
+              )}
     </View>
             {!freeze && (
               <Text style={styles.crosshairHint}>Aim the crosshair to the color you want to detect.</Text>
