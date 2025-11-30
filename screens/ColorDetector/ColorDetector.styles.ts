@@ -17,7 +17,7 @@ export const CROSSHAIR_CONTAINER_SIZE = CROSSHAIR_DOT_SIZE + CROSSHAIR_DOT_BORDE
 
 export const styles = StyleSheet.create({
   container: { flex: 1, backgroundColor: '#F5F5F0', position: 'relative' },
-  header: { flexDirection: 'row', justifyContent: 'flex-end', alignItems: 'center', padding: rf(14) },
+  header: { flexDirection: 'row', alignItems: 'center', padding: rf(14) },
   headerSpacer: { flex: 1 },
   backButton: { width: rf(48), height: rf(48), borderRadius: rf(24), justifyContent: 'center', alignItems: 'center', backgroundColor: '#000' },
   backText: { fontSize: rf(20), fontWeight: '700', color: '#fff' },
@@ -84,7 +84,7 @@ export const styles = StyleSheet.create({
   processingText: { fontSize: rf(15), color: '#111', marginTop: rf(8), fontWeight: '600' },
   tapMarkerRoot: { position: 'absolute', left: 0, top: 0, width: '100%', height: '100%', pointerEvents: 'none' },
   tapMarkerDot: { position: 'absolute', width: rf(18), height: rf(18), borderRadius: rf(9), backgroundColor: 'rgba(0,200,80,0.95)', borderWidth: 2, borderColor: '#fff', elevation: 8, shadowColor: '#000', shadowOffset: { width: 0, height: 2 }, shadowOpacity: 0.25, shadowRadius: 4 },
-  debugSamplingBox: { position: 'absolute', borderWidth: 3, borderColor: '#00FF00', backgroundColor: 'rgba(0,255,0,0.15)', borderRadius: 2, zIndex: 1000, elevation: 10 },
+  debugSamplingBox: { position: 'absolute', borderWidth: 1, borderColor: '#FFFFFF', backgroundColor: 'rgba(0,255,0,0.15)', borderRadius: 2, zIndex: 1000, elevation: 10 },
   
   // Reference boxes styles
   referenceBoxContainer: { position: 'absolute', bottom: rf(12), left: 0, right: 0, flexDirection: 'row', justifyContent: 'center', alignItems: 'flex-end', elevation: 20 },

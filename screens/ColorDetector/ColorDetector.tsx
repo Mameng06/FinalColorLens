@@ -1527,6 +1527,9 @@ const ColorDetector: React.FC<ColorDetectorProps> = ({ onBack, openSettings, voi
   return (
     <View style={[styles.container, { paddingTop: insets.top || 0, paddingBottom: insets.bottom || 0 }]}> 
       <View style={styles.header}>
+        <TouchableOpacity onPress={onBack} style={styles.backButton} hitSlop={{ top: 10, left: 10, bottom: 10, right: 10 }}>
+          <Image source={ICONS.ARROWicon} style={styles.backIconImage} />
+        </TouchableOpacity>
         <View style={styles.headerSpacer} />
         <TouchableOpacity onPress={() => { openSettings(); }} style={styles.settingsButton} hitSlop={{ top: 10, left: 10, bottom: 10, right: 10 }}>
           <SettingsIcon size={rf(32)} color="#000" />
@@ -1679,7 +1682,8 @@ const ColorDetector: React.FC<ColorDetectorProps> = ({ onBack, openSettings, voi
                  </View>
                )}
 
-              {crosshairPos && (
+              {/* Show crosshair only when frozen or image is uploaded */}
+              {crosshairPos && (freeze || selectedImageUri) && (
                  <View
                    pointerEvents="none"
                    style={[
@@ -1694,7 +1698,8 @@ const ColorDetector: React.FC<ColorDetectorProps> = ({ onBack, openSettings, voi
                    </View>
                  </View>
                )}
-              {debugSamplingBox && (
+              {/* Show green sampling box only in live detection (not frozen, no uploaded image) */}
+              {debugSamplingBox && !freeze && !selectedImageUri && (
                 <View
                   pointerEvents="none"
                   style={[
@@ -1710,7 +1715,7 @@ const ColorDetector: React.FC<ColorDetectorProps> = ({ onBack, openSettings, voi
               )}
     </View>
             {!freeze && (
-              <Text style={styles.crosshairHint}>Aim the crosshair to the color you want to detect.</Text>
+              <Text style={styles.crosshairHint}>Aim the box to the color you want to detect.</Text>
             )}
           </View>
         </View>
