@@ -153,10 +153,13 @@ export const computeWhiteGains = (r: number, g: number, b: number) => {
 };
 
 // Simple per-channel white normalization matching Color Meter: corr = 255 / white_channel
+// This normalizes all colors relative to the white reference, ensuring accurate color measurement
 export const computeSimpleWhiteGains = (r: number, g: number, b: number) => {
-  const rr = Math.max(1, r);
-  const gg = Math.max(1, g);
-  const bb = Math.max(1, b);
+  // Use max(1) to avoid division by zero, but use actual values for accuracy
+  // Color Meter approach: normalize each channel so white becomes (255, 255, 255)
+  const rr = Math.max(1, Math.min(255, r));
+  const gg = Math.max(1, Math.min(255, g));
+  const bb = Math.max(1, Math.min(255, b));
   const gr = 255 / rr;
   const ggain = 255 / gg;
   const gb = 255 / bb;
@@ -175,7 +178,10 @@ export const applyWhiteBalanceCorrection = (sample: {r:number;g:number;b:number}
 };
 
 // Simple apply: multiply each channel by gain and clamp to 0..255 (Color Meter approach)
+// This applies white balance normalization: colors are measured relative to white reference
 export const applySimpleWhiteBalanceCorrection = (sample: {r:number;g:number;b:number}, gains: {gr:number;gg:number;gb:number}) => {
+  // Apply gains to normalize colors relative to white reference
+  // This ensures accurate color measurement under varying lighting conditions
   const r = Math.round(Math.max(0, Math.min(255, sample.r * gains.gr)));
   const g = Math.round(Math.max(0, Math.min(255, sample.g * gains.gg)));
   const b = Math.round(Math.max(0, Math.min(255, sample.b * gains.gb)));
@@ -185,7 +191,16 @@ export const applySimpleWhiteBalanceCorrection = (sample: {r:number;g:number;b:n
 // Store computed white gains for automatic calibration
 let calibratedGains: { gr: number; gg: number; gb: number } | null = null;
 
-export const setCalibratedGains = (gains: { gr: number; gg: number; gb: number }) => {
+export const setCalibratedGains = (gains: { gr: number; gg: number; gb: number }, smooth = true) => {
+  if (smooth && calibratedGains) {
+    const alpha = 0.2;
+    calibratedGains = {
+      gr: calibratedGains.gr * (1 - alpha) + gains.gr * alpha,
+      gg: calibratedGains.gg * (1 - alpha) + gains.gg * alpha,
+      gb: calibratedGains.gb * (1 - alpha) + gains.gb * alpha,
+    };
+    return;
+  }
   calibratedGains = gains;
 };
 
@@ -400,7 +415,13 @@ const isWhiteSurfaceCalibrated = (r: number, g: number, b: number): boolean => {
   );
 };
 
-export const getWhiteSurfaceStatus = (r: number, g: number, b: number, useCalibration?: boolean): { status: 'ok' | 'not_white', message: string } => {
+export const getWhiteSurfaceStatus = (r: number, g: number, b: number, useCalibration?: boolean): { status: 'ok' | 'too_dark' | 'not_white', message: string } => {
+  // Check if too dark first
+  const luminance = 0.299 * r + 0.587 * g + 0.114 * b;
+  if (luminance < 100) {
+    return { status: 'too_dark', message: 'Please aim the left part of the camera view at an even white surface' };
+  }
+  
   // If calibration is available and enabled, use adaptive threshold
   if (useCalibration && calibratedWhiteLab) {
     if (isWhiteSurfaceCalibrated(r, g, b)) {
@@ -409,7 +430,7 @@ export const getWhiteSurfaceStatus = (r: number, g: number, b: number, useCalibr
     // If calibration exists but doesn't match, still try default test
   }
   if (!isWhiteSurface(r, g, b)) {
-    return { status: 'not_white', message: 'Left box not on white paper - ensure white surface is visible' };
+    return { status: 'not_white', message: 'The left side should be white' };
   }
   return { status: 'ok', message: '' };
 };

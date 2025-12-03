@@ -1,4 +1,4 @@
-import React, { useEffect, useRef, useState } from 'react';
+import React, { useEffect, useRef, useState, useCallback } from 'react';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { View, Text, TouchableOpacity, TouchableWithoutFeedback, Platform, PermissionsAndroid, Image, PanResponder, Animated, ActivityIndicator, Alert, BackHandler } from 'react-native';
 let RNExitApp: any = null;
@@ -103,8 +103,10 @@ const ColorDetector: React.FC<ColorDetectorProps> = ({ onBack, openSettings, voi
   const suppressSpeechRef = useRef<boolean>(false);
   const freezeSpeakTimersRef = useRef<number[]>([]);
   const lastSpokenRef = useRef<number>(0);
+  // Continuous voice output every 1.2 seconds during live detection
   const LIVE_SPEAK_COOLDOWN = 1200;
   const [cameraPermission, setCameraPermission] = useState<string | null>(null);
+  const [cameraError, setCameraError] = useState<string | null>(null);
   const [availableDevices, setAvailableDevices] = useState<any[] | null>(null);
   const availableDevice = availableDevices ? availableDevices.find((d:any) => d.position === 'back') ?? availableDevices[0] : null;
   const permissionInitializedRef = useRef(false);
@@ -116,6 +118,7 @@ const ColorDetector: React.FC<ColorDetectorProps> = ({ onBack, openSettings, voi
   const leftBoxEnabledRef = useRef<boolean>(true); // Keep in sync with state for use in async functions
   const [referenceBoxSamples, setReferenceBoxSamples] = useState<{left: {r:number,g:number,b:number}|null, right: {r:number,g:number,b:number}|null}>({left: null, right: null});
   const [whiteBalanceStatus, setWhiteBalanceStatus] = useState<{ status: 'ok' | 'too_dark' | 'not_white', message: string }>({ status: 'ok', message: '' });
+  const whiteBalanceStatusRef = useRef<{ status: 'ok' | 'too_dark' | 'not_white', message: string }>({ status: 'ok', message: '' });
   const lastWarningSpokenRef = useRef<number>(0);
   
   // Calibration: gains are stored in ColorDetectorLogic; use getCalibratedGains()
@@ -135,6 +138,9 @@ const ColorDetector: React.FC<ColorDetectorProps> = ({ onBack, openSettings, voi
   const [debugRightRaw, setDebugRightRaw] = useState<{r:number;g:number;b:number}|null>(null);
   const [debugRightMatch, setDebugRightMatch] = useState<string | null>(null);
   const [debugSamplingBox, setDebugSamplingBox] = useState<{x:number, y:number, width:number, height:number} | null>(null);
+  const [detectionDot, setDetectionDot] = useState<{x:number, y:number} | null>(null);
+  // Temporary: store detected RGB for comparison view
+  const [detectedRgb, setDetectedRgb] = useState<{r:number, g:number, b:number} | null>(null);
 
   const normalizeRgb = (rgb?: { r: number; g: number; b: number } | null) => {
     if (
@@ -192,20 +198,111 @@ const ColorDetector: React.FC<ColorDetectorProps> = ({ onBack, openSettings, voi
   };
 
   const rollingRightColorsRef = useRef<Array<{r:number;g:number;b:number}>>([]);
+  // Detection history for stabilization - prevents oscillation between similar colors
+  const detectionHistoryRef = useRef<Array<{family:string, realName:string, confidence?:number}>>([]);
+  const STABLE_DETECTION_HISTORY_SIZE = 3; // Require 3 consistent detections before switching
+  const MIN_CONFIDENCE_FOR_CHANGE = 60; // Require higher confidence to switch from stable color
 
   const rgbDist = (a: {r:number;g:number;b:number}, b: {r:number;g:number;b:number}) => {
     const dr = a.r - b.r; const dg = a.g - b.g; const db = a.b - b.b;
     return Math.sqrt(dr*dr + dg*dg + db*db);
   };
 
-  const temporalMedianPush = (c: {r:number;g:number;b:number}, size = 5): {r:number;g:number;b:number} => {
+  // Check if a detection is consistent with history
+  const isDetectionStable = (newDetection: {family:string, realName:string, confidence?:number}): boolean => {
+    const history = detectionHistoryRef.current || [];
+    if (history.length === 0) return true; // First detection is always stable
+    
+    // Check if new detection matches the most recent stable detection
+    const lastStable = history[history.length - 1];
+    const familyMatch = newDetection.family.toLowerCase() === lastStable.family.toLowerCase();
+    const nameMatch = newDetection.realName.toLowerCase() === lastStable.realName.toLowerCase();
+    
+    // If it matches, it's stable
+    if (familyMatch && nameMatch) return true;
+    
+    // If it doesn't match, check if we have enough consistent new detections
+    const recentMatches = history.filter(d => 
+      d.family.toLowerCase() === newDetection.family.toLowerCase() &&
+      d.realName.toLowerCase() === newDetection.realName.toLowerCase()
+    ).length;
+    
+    // Need at least 2 previous detections of the new color to switch
+    return recentMatches >= 2;
+  };
+
+  // Add detection to history and return if it should be used
+  const stabilizeDetection = (newDetection: {family:string, realName:string, confidence?:number}, detectedRgb?: {r:number, g:number, b:number}): {family:string, realName:string, confidence?:number} | null => {
+    try {
+      const history = detectionHistoryRef.current || [];
+      
+      // Check if detected color is clearly white - if so, prioritize it immediately
+      const isDetectedWhite = detectedRgb ? (() => {
+        const minVal = Math.min(detectedRgb.r, detectedRgb.g, detectedRgb.b);
+        const maxVal = Math.max(detectedRgb.r, detectedRgb.g, detectedRgb.b);
+        const delta = maxVal - minVal;
+        return minVal >= 180 && delta <= 35;
+      })() : false;
+      
+      const isWhiteFamily = /(white|snow|ivory|cream)/i.test(newDetection.family) || /(white|snow|ivory|cream)/i.test(newDetection.realName);
+      
+      // If clearly white is detected, use it immediately (don't wait for stabilization)
+      if (isDetectedWhite && isWhiteFamily) {
+        // Clear history to allow immediate white detection
+        detectionHistoryRef.current = [newDetection];
+        return newDetection;
+      }
+      
+      // Add to history
+      history.push(newDetection);
+      while (history.length > STABLE_DETECTION_HISTORY_SIZE) history.shift();
+      detectionHistoryRef.current = history;
+      
+      // If we have a stable detection, use it
+      if (isDetectionStable(newDetection)) {
+        return newDetection;
+      }
+      
+      // If not stable yet, check if we should keep the last stable one
+      if (history.length >= 2) {
+        const lastStable = history[history.length - 2];
+        // Only keep old detection if new one has low confidence
+        if (newDetection.confidence && newDetection.confidence < MIN_CONFIDENCE_FOR_CHANGE) {
+          return lastStable;
+        }
+      }
+      
+      // Otherwise, use the new detection (will stabilize on next frames)
+      return newDetection;
+    } catch (_e) {
+      return newDetection;
+    }
+  };
+
+  const temporalMedianPush = (c: {r:number;g:number;b:number}, size = 2): {r:number;g:number;b:number} => {
     try {
       const arr = rollingRightColorsRef.current || [];
+      
+      // If buffer is empty or color changed significantly, clear buffer for faster response
+      if (arr.length > 0) {
+        const lastColor = arr[arr.length - 1];
+        const colorChange = rgbDist(c, lastColor);
+        // If color changed by more than 30 RGB units, clear buffer (significant change)
+        if (colorChange > 30) {
+          arr.length = 0; // Clear buffer for faster response to new color
+          detectionHistoryRef.current = []; // Also clear detection history on major color change
+        }
+      }
+      
       arr.push(c);
       while (arr.length > size) arr.shift();
       rollingRightColorsRef.current = arr;
-      const med = medianRgb(arr);
-      return med || c;
+      // Use median for smoothing while maintaining responsiveness
+      if (arr.length >= size) {
+        const med = medianRgb(arr);
+        return med || c;
+      }
+      return c;
     } catch (_e) { return c; }
   };
 
@@ -257,17 +354,22 @@ const ColorDetector: React.FC<ColorDetectorProps> = ({ onBack, openSettings, voi
     }
   };
 
+  const setWhiteBalanceStatusSafe = useCallback((status: { status: 'ok' | 'too_dark' | 'not_white', message: string }) => {
+    whiteBalanceStatusRef.current = status;
+    setWhiteBalanceStatus(status);
+  }, []);
+
   const updateWhiteBalanceStatus = (r: number, g: number, b: number) => {
     // If left box is disabled, NEVER set any warning or speak anything
     try {
       if (!leftBoxEnabled) {
         // Aggressively clear status and suppress all speech
-        setWhiteBalanceStatus({ status: 'ok', message: '' });
+        setWhiteBalanceStatusSafe({ status: 'ok', message: '' });
         suppressSpeechRef.current = true;
         return;
       }
       const status = getWhiteSurfaceStatus(r, g, b, Boolean(getCalibratedGains()));
-      setWhiteBalanceStatus(status);
+      setWhiteBalanceStatusSafe(status);
       // Speak warning only when left-box is enabled and voice is enabled
       if (status.status !== 'ok' && voiceEnabled) {
         // Allow warning speech only when left box is explicitly enabled
@@ -277,7 +379,7 @@ const ColorDetector: React.FC<ColorDetectorProps> = ({ onBack, openSettings, voi
     } catch (_e) {
       // On error, do not surface a warning if left box is disabled
       if (!leftBoxEnabled) {
-        setWhiteBalanceStatus({ status: 'ok', message: '' });
+        setWhiteBalanceStatusSafe({ status: 'ok', message: '' });
         suppressSpeechRef.current = true;
       }
     }
@@ -329,7 +431,8 @@ const ColorDetector: React.FC<ColorDetectorProps> = ({ onBack, openSettings, voi
         // Multiple attempts to stop TTS to ensure it's silenced
         setTimeout(() => { try { stopTts(); } catch (_e) {} }, 50);
         setTimeout(() => { try { stopTts(); } catch (_e) {} }, 150);
-        setWhiteBalanceStatus({ status: 'ok', message: '' });
+        setWhiteBalanceStatusSafe({ status: 'ok', message: '' });
+        clearCalibratedGains();
       } else {
         // Re-enable TTS when left box is turned back on
         setSuppressed(false);
@@ -341,6 +444,7 @@ const ColorDetector: React.FC<ColorDetectorProps> = ({ onBack, openSettings, voi
   const processSnapshotAndSample = async (): Promise<boolean> => {
     try {
       if (cameraPermission !== 'authorized') return false;
+      if (cameraError) return false;
       if (processingFrameRef.current) return false;
       if (freeze) return false;
       processingFrameRef.current = true;
@@ -357,15 +461,16 @@ const ColorDetector: React.FC<ColorDetectorProps> = ({ onBack, openSettings, voi
         }
       } catch (err) { blobLike = null; }
       if (!blobLike) { processingFrameRef.current = false; return false; }
+      if (cameraError) setCameraError(null);
       let base64: string | null = null;
       // clear previous per-pass debug entries
-      try { setDebugRightRaw(null); setDebugRightMatch(null); setDebugSamplingBox(null); } catch (_e) {}
+      try { setDebugRightRaw(null); setDebugRightMatch(null); setDebugSamplingBox(null); setDetectionDot(null); } catch (_e) {}
       // Clear any left-box debug/white status (no longer used)
       try {
         try { setDebugLeftMedian(null); } catch (_e) {}
         try { setDebugLeftFraction(null); } catch (_e) {}
         try { leftWhiteHistoryRef.current = []; } catch (_e) {}
-        try { setWhiteBalanceStatus({ status: 'ok', message: '' }); } catch (_e) {}
+        try { setWhiteBalanceStatusSafe({ status: 'ok', message: '' }); } catch (_e) {}
       } catch (_e) {}
       let uri: string | undefined = blobLike?.path || blobLike?.uri || blobLike?.localUri || blobLike?.filePath || blobLike?.file;
       try { if (uri && typeof uri === 'string' && uri.startsWith('/')) uri = 'file://' + uri; } catch (_e) {}
@@ -380,26 +485,89 @@ const ColorDetector: React.FC<ColorDetectorProps> = ({ onBack, openSettings, voi
               const ph = previewLayout.current?.height || 0;
               console.log('[ColorDetector] native decode branch, preview size:', { pw, ph });
               
-              // Sample from center box position
-              const centerBoxRelX = pw * 0.5; // Center box is at 50% from left
-              const centerBoxRelY = ph * 0.6; // Center box is at 60% from top (slightly below center)
-              console.log(`[ColorDetector Native] Attempting native decode grid around center (${centerBoxRelX.toFixed(0)}, ${centerBoxRelY.toFixed(0)})`);
-              const gridRadius = Math.max(2, Math.floor(Math.min(pw, ph) * 0.03));
-              const steps = 2; // 5x5 grid
-              // Set debug box to show sampling area
-              const boxSize = gridRadius * steps * 2;
-              setDebugSamplingBox({ x: centerBoxRelX - boxSize/2, y: centerBoxRelY - boxSize/2, width: boxSize, height: boxSize });
-              const nativeCenterSamples: Array<{r:number;g:number;b:number}> = [];
+              // Two-box system: left box for white balance, right box for color detection
+              const boxSizePixels = referenceBoxSizeInches * PIXELS_PER_INCH;
+              const boxHalfSize = boxSizePixels / 2;
+              
+              // Left box: 25% from left edge, 50% from top (center vertically)
+              const leftBoxRelX = pw * 0.25;
+              const leftBoxRelY = ph * 0.5;
+              
+              // Right box: 75% from left edge, 50% from top (center vertically)
+              const rightBoxRelX = pw * 0.75;
+              const rightBoxRelY = ph * 0.5;
+              
+              // Sample from left box (for white balance calibration)
+              let leftBoxSample: {r:number;g:number;b:number} | null = null;
+              if (leftBoxEnabled) {
+                const leftSamples: Array<{r:number;g:number;b:number}> = [];
+                const gridRadius = Math.max(2, Math.floor(boxHalfSize * 0.25));
+                const steps = 1;
+                for (let gy = -steps; gy <= steps; gy++) {
+                  for (let gx = -steps; gx <= steps; gx++) {
+                    const sx = leftBoxRelX + (gx * gridRadius);
+                    const sy = leftBoxRelY + (gy * gridRadius);
+                    // eslint-disable-next-line no-await-in-loop
+                    const s = await decodeScaledRegion(normalizedUri, sx, sy, pw, ph);
+                    if (s && typeof s.r === 'number') leftSamples.push(s);
+                  }
+                }
+                const leftFiltered = filterOutliersAroundMedian(leftSamples, 35);
+                leftBoxSample = medianRgb(leftFiltered);
+                
+                // Check if left box is white and update status
+                if (leftBoxSample) {
+                  const isWhite = isWhiteSurface(leftBoxSample.r, leftBoxSample.g, leftBoxSample.b);
+                  const status = getWhiteSurfaceStatus(leftBoxSample.r, leftBoxSample.g, leftBoxSample.b, Boolean(getCalibratedGains()));
+                  updateWhiteBalanceStatus(leftBoxSample.r, leftBoxSample.g, leftBoxSample.b);
+                  
+                  // If white, use it for calibration - use Color Meter approach for accuracy
+                  if (isWhite) {
+                    // Use Color Meter approach: gains = 255 / white_channel (more accurate)
+                    const gains = computeSimpleWhiteGains(leftBoxSample.r, leftBoxSample.g, leftBoxSample.b);
+                    setCalibratedGains(gains, true);
+                  } else {
+                    // Don't clear gains immediately - keep using last calibration for better accuracy
+                    // clearCalibratedGains();
+                  }
+                  // Don't block right box detection based on left box status
+                  // Allow detection to proceed even if left box is not white
+                  // if (status.status !== 'ok') {
+                  //   processingFrameRef.current = false;
+                  //   return false;
+                  // }
+                }
+              } else {
+                // Left box disabled - clear status
+                setWhiteBalanceStatusSafe({ status: 'ok', message: '' });
+                clearCalibratedGains();
+              }
+              
+              // Sample from right box (for color detection)
+              const gridRadius = Math.max(2, Math.floor(boxHalfSize * 0.3));
+              const steps = 1;
+              const rightSamples: Array<{r:number;g:number;b:number}> = [];
               for (let gy = -steps; gy <= steps; gy++) {
                 for (let gx = -steps; gx <= steps; gx++) {
-                  const sx = centerBoxRelX + (gx * gridRadius);
-                  const sy = centerBoxRelY + (gy * gridRadius);
+                  const sx = rightBoxRelX + (gx * gridRadius);
+                  const sy = rightBoxRelY + (gy * gridRadius);
                   // eslint-disable-next-line no-await-in-loop
                   const s = await decodeScaledRegion(normalizedUri, sx, sy, pw, ph);
-                  if (s && typeof s.r === 'number') nativeCenterSamples.push(s);
+                  if (s && typeof s.r === 'number') rightSamples.push(s);
                 }
               }
-              const filtered = filterOutliersAroundMedian(nativeCenterSamples, 35);
+              
+              // Set debug box to show right sampling area
+              const sampleVisSize = boxSizePixels * 0.65;
+              setDebugSamplingBox({ x: rightBoxRelX - sampleVisSize / 2, y: rightBoxRelY - sampleVisSize / 2, width: sampleVisSize, height: sampleVisSize });
+              
+              // Show green dot at exact detection point (center of right box)
+              setDetectionDot({ x: rightBoxRelX, y: rightBoxRelY });
+              setTimeout(() => {
+                setDetectionDot(null);
+              }, 2000);
+              
+              const filtered = filterOutliersAroundMedian(rightSamples, 35);
               const lumas = filtered.map(s => lumaOf(s));
               const edgeEnergy = variance(lumas);
               if (filtered.length < 5 || edgeEnergy < 3) {
@@ -448,7 +616,18 @@ const ColorDetector: React.FC<ColorDetectorProps> = ({ onBack, openSettings, voi
                 } catch (_e) { console.log('[ColorDetector Native] JPEG fallback failed:', _e); }
               }
               if (centerSample && typeof centerSample.r === 'number') {
-                const sampleForInference = temporalMedianPush(centerSample, 7);
+                // Apply white balance correction using the most recent calibration (even if left box is hidden)
+                // Use Color Meter approach: simple multiplication for accurate color normalization
+                let correctedSample = centerSample;
+                const gains = getCalibratedGains();
+                if (gains) {
+                  // Use simple white balance correction (Color Meter approach) for better accuracy
+                  const corrected = applySimpleWhiteBalanceCorrection(centerSample, gains);
+                  correctedSample = corrected;
+                }
+                // Use small buffer (2 samples) for smoothing while maintaining responsiveness
+                const sampleForInference = temporalMedianPush(correctedSample, 2);
+                const sampleForDisplay = sampleForInference || correctedSample;
                 try { setDebugCorrectedRight(sampleForInference); } catch (_e) {}
                 console.log(`[ColorDetector Native] About to infer color`);
                 const inferred = await inferColorFromRGB({ r: sampleForInference.r, g: sampleForInference.g, b: sampleForInference.b }).catch((e) => {
@@ -457,11 +636,36 @@ const ColorDetector: React.FC<ColorDetectorProps> = ({ onBack, openSettings, voi
                 });
                 console.log(`[ColorDetector Native] Inferred:`, inferred ? inferred.realName : 'null');
                 if (inferred) {
-                  const live = { family: inferred.family, hex: inferred.hex, realName: inferred.realName, confidence: inferred.confidence };
-                  try { setDebugRightMatch(inferred.realName || inferred.family || inferred.hex || null); } catch (_e) {}
-                  if (!freeze) setLiveDetected(live);
-                  processingFrameRef.current = false;
-                  return true;
+                  // Stabilize detection to prevent oscillation - pass RGB to prioritize white detection
+                  const stabilized = stabilizeDetection({
+                    family: inferred.family,
+                    realName: inferred.realName,
+                    confidence: inferred.confidence
+                  }, sampleForInference);
+                  
+                  if (stabilized) {
+                    const live = { 
+                      family: stabilized.family, 
+                      hex: inferred.hex, 
+                      realName: stabilized.realName, 
+                      confidence: stabilized.confidence || inferred.confidence 
+                    };
+                    try { setDebugRightMatch(stabilized.realName || stabilized.family || inferred.hex || null); } catch (_e) {}
+                    
+                    // Store detected RGB for comparison view
+                    setDetectedRgb(sampleForDisplay);
+                    
+                    // Clear temporal buffer if color family changed significantly (faster response)
+                    if (liveDetected && liveDetected.family !== stabilized.family) {
+                      rollingRightColorsRef.current = [];
+                      // Also clear detection history on significant color change (e.g., brown to white)
+                      detectionHistoryRef.current = [];
+                    }
+                    
+                    if (!freeze) setLiveDetected(live);
+                    processingFrameRef.current = false;
+                    return true;
+                  }
                 }
                 // Fallback: try matcher-based nearest color
                 try {
@@ -469,11 +673,36 @@ const ColorDetector: React.FC<ColorDetectorProps> = ({ onBack, openSettings, voi
                   console.log(`[ColorDetector Native] Matcher fallback:`, match ? match.closest_match : null);
                   if (match && match.closest_match) {
                     const cm = match.closest_match;
-                    const live = { family: cm.family || cm.name, hex: cm.hex, realName: cm.name, confidence: cm.confidence };
-                    try { setDebugRightMatch(cm.name || cm.family || cm.hex || null); } catch (_e) {}
-                    if (!freeze) setLiveDetected(live);
-                    processingFrameRef.current = false;
-                    return true;
+                    // Stabilize detection to prevent oscillation - pass RGB to prioritize white detection
+                    const stabilized = stabilizeDetection({
+                      family: cm.family || cm.name,
+                      realName: cm.name,
+                      confidence: cm.confidence
+                    }, sampleForInference);
+                    
+                    if (stabilized) {
+                      const live = { 
+                        family: stabilized.family, 
+                        hex: cm.hex, 
+                        realName: stabilized.realName, 
+                        confidence: stabilized.confidence || cm.confidence 
+                      };
+                      try { setDebugRightMatch(stabilized.realName || stabilized.family || cm.hex || null); } catch (_e) {}
+                      
+                      // Store detected RGB for comparison view
+                      setDetectedRgb(sampleForDisplay);
+                      
+                      // Clear temporal buffer if color family changed significantly (faster response)
+                      if (liveDetected && liveDetected.family !== stabilized.family) {
+                        rollingRightColorsRef.current = [];
+                        // Also clear detection history on significant color change (e.g., brown to white)
+                        detectionHistoryRef.current = [];
+                      }
+                      
+                      if (!freeze) setLiveDetected(live);
+                      processingFrameRef.current = false;
+                      return true;
+                    }
                   }
                 } catch (_e) {}
               }
@@ -497,22 +726,76 @@ const ColorDetector: React.FC<ColorDetectorProps> = ({ onBack, openSettings, voi
         if (!decoded || !decoded.width || !decoded.data) { processingFrameRef.current = false; return false; }
         const w = decoded.width; const h = decoded.height; const data = decoded.data;
         
-        // Sample from center box area
-        const cx = Math.floor(w * 0.5);
-        const cy = Math.floor(h * 0.6);
-        const cRadius = Math.floor(Math.min(w, h) * 0.06);
+        // Two-box system: left box for white balance, right box for color detection
+        const boxSizePixels = referenceBoxSizeInches * PIXELS_PER_INCH;
+        const boxHalfSize = boxSizePixels / 2;
+        const pw = previewLayout.current?.width || previewSize?.width || w;
+        const ph = previewLayout.current?.height || previewSize?.height || h;
+        
+        // Left box: 25% from left edge, 50% from top
+        const leftBoxX = Math.floor(w * 0.25);
+        const leftBoxY = Math.floor(h * 0.5);
+        const leftBoxRadius = Math.max(2, Math.floor(boxHalfSize * 0.3 * (w / pw)));
+        
+        // Right box: 75% from left edge, 50% from top
+        const rightBoxX = Math.floor(w * 0.75);
+        const rightBoxY = Math.floor(h * 0.5);
+        const rightBoxRadius = Math.max(2, Math.floor(boxHalfSize * 0.3 * (w / pw)));
+        
+        // Sample from left box (for white balance calibration)
+        let leftBoxSample: {r:number;g:number;b:number} | null = null;
+        if (leftBoxEnabled) {
+          const leftSamples: Array<{r:number;g:number;b:number}> = [];
+          for (let yy = Math.max(0, leftBoxY - leftBoxRadius); yy <= Math.min(h-1, leftBoxY + leftBoxRadius); yy++) {
+            for (let xx = Math.max(0, leftBoxX - leftBoxRadius); xx <= Math.min(w-1, leftBoxX + leftBoxRadius); xx++) {
+              const idx = (yy * w + xx) * 4;
+              leftSamples.push({ r: data[idx], g: data[idx+1], b: data[idx+2] });
+            }
+          }
+          const leftFiltered = filterOutliersAroundMedian(leftSamples, 35);
+          leftBoxSample = medianRgb(leftFiltered);
+          
+          // Check if left box is white and update status
+          if (leftBoxSample) {
+            updateWhiteBalanceStatus(leftBoxSample.r, leftBoxSample.g, leftBoxSample.b);
+            const isWhite = isWhiteSurface(leftBoxSample.r, leftBoxSample.g, leftBoxSample.b);
+            if (isWhite) {
+              // Use Color Meter approach: gains = 255 / white_channel (more accurate)
+              const gains = computeSimpleWhiteGains(leftBoxSample.r, leftBoxSample.g, leftBoxSample.b);
+              setCalibratedGains(gains, true);
+            } else {
+              // Don't clear gains immediately - keep using last calibration for better accuracy
+              // clearCalibratedGains();
+            }
+            // Don't block right box detection based on left box status
+            // Allow detection to proceed even if left box is not white
+            // if (whiteBalanceStatusRef.current.status !== 'ok') {
+            //   processingFrameRef.current = false;
+            //   return false;
+            // }
+          }
+        } else {
+          setWhiteBalanceStatusSafe({ status: 'ok', message: '' });
+          clearCalibratedGains();
+        }
+        
+        // Sample from right box (for color detection)
         // Set debug box to show sampling area (convert from image coords to preview coords)
         if (previewSize) {
-          const pw = previewLayout.current?.width || previewSize.width;
-          const ph = previewLayout.current?.height || previewSize.height;
-          const centerBoxRelX = pw * 0.5;
-          const centerBoxRelY = ph * 0.6;
-          const boxSize = (cRadius * 2) * (pw / w); // Scale radius to preview size
-          setDebugSamplingBox({ x: centerBoxRelX - boxSize/2, y: centerBoxRelY - boxSize/2, width: boxSize, height: boxSize });
+          const rightBoxRelX = pw * 0.75;
+          const rightBoxRelY = ph * 0.5;
+          const boxSize = boxSizePixels * 0.65;
+          setDebugSamplingBox({ x: rightBoxRelX - boxSize/2, y: rightBoxRelY - boxSize/2, width: boxSize, height: boxSize });
+          
+          // Show green dot at exact detection point (center of right box)
+          setDetectionDot({ x: rightBoxRelX, y: rightBoxRelY });
+          setTimeout(() => {
+            setDetectionDot(null);
+          }, 2000);
         }
         const centerSamples: Array<{r:number;g:number;b:number}> = [];
-        for (let yy = Math.max(0, cy - cRadius); yy <= Math.min(h-1, cy + cRadius); yy++) {
-          for (let xx = Math.max(0, cx - cRadius); xx <= Math.min(w-1, cx + cRadius); xx++) {
+        for (let yy = Math.max(0, rightBoxY - rightBoxRadius); yy <= Math.min(h-1, rightBoxY + rightBoxRadius); yy++) {
+          for (let xx = Math.max(0, rightBoxX - rightBoxRadius); xx <= Math.min(w-1, rightBoxX + rightBoxRadius); xx++) {
             const idx = (yy * w + xx) * 4;
             centerSamples.push({ r: data[idx], g: data[idx+1], b: data[idx+2] });
           }
@@ -523,18 +806,47 @@ const ColorDetector: React.FC<ColorDetectorProps> = ({ onBack, openSettings, voi
           console.log(`[ColorDetector] Center median RGB: ${centerSampled ? `${centerSampled.r},${centerSampled.g},${centerSampled.b}` : 'null'}`);
           if (centerSampled) {
             try { setDebugRightRaw(centerSampled); setDebugRightMatch(null); } catch (_e) {}
-            try { setDebugCorrectedRight(centerSampled); } catch (_e) {}
-            console.log(`[ColorDetector] About to infer color from: ${centerSampled.r},${centerSampled.g},${centerSampled.b}`);
-            const inferred = await inferColorFromRGB({ r: centerSampled.r, g: centerSampled.g, b: centerSampled.b }).catch((e) => {
+            // Apply white balance correction using the latest calibration (even if left box UI is disabled)
+            let correctedSampled = centerSampled;
+            const gains = getCalibratedGains();
+            if (gains) {
+              const corrected = applySimpleWhiteBalanceCorrection(centerSampled, gains);
+              correctedSampled = corrected;
+            }
+            try { setDebugCorrectedRight(correctedSampled); } catch (_e) {}
+            console.log(`[ColorDetector] About to infer color from: ${correctedSampled.r},${correctedSampled.g},${correctedSampled.b}`);
+            const inferred = await inferColorFromRGB({ r: correctedSampled.r, g: correctedSampled.g, b: correctedSampled.b }).catch((e) => {
               console.log(`[ColorDetector] Inference error:`, e);
               return null;
             });
             console.log(`[ColorDetector] Inferred result:`, inferred ? inferred.realName : 'null');
             if (inferred) {
-              const live = { family: inferred.family, hex: inferred.hex, realName: inferred.realName, confidence: inferred.confidence };
-              if (!freeze) setLiveDetected(live);
-              processingFrameRef.current = false;
-              return true;
+              // Stabilize detection to prevent oscillation - pass RGB to prioritize white detection
+              const stabilized = stabilizeDetection({
+                family: inferred.family,
+                realName: inferred.realName,
+                confidence: inferred.confidence
+              }, correctedSampled);
+              
+              if (stabilized) {
+                const live = { 
+                  family: stabilized.family, 
+                  hex: inferred.hex, 
+                  realName: stabilized.realName, 
+                  confidence: stabilized.confidence || inferred.confidence 
+                };
+                
+                // Clear temporal buffer if color family changed significantly (faster response)
+                if (liveDetected && liveDetected.family !== stabilized.family) {
+                  rollingRightColorsRef.current = [];
+                  // Also clear detection history on significant color change (e.g., brown to white)
+                  detectionHistoryRef.current = [];
+                }
+                
+                if (!freeze) setLiveDetected(live);
+                processingFrameRef.current = false;
+                return true;
+              }
             }
           }
         }
@@ -640,16 +952,45 @@ const ColorDetector: React.FC<ColorDetectorProps> = ({ onBack, openSettings, voi
   // before clearing `liveDetected` to make right-only mode more stable.
   const debounceClearRef = useRef<number | null>(null);
 
+  // Continuous voice output every 1.2 seconds during live detection
   useEffect(() => {
-    if (!liveDetected || !voiceEnabled || freeze) return;
-    if (voiceMode === 'disable') return;
-    try {
-      const now = Date.now();
-      if (now - lastSpokenRef.current < LIVE_SPEAK_COOLDOWN) return;
-      const textToSpeak = voiceMode === 'real' ? liveDetected.realName : liveDetected.family;
-      const ok = safeSpeak(textToSpeak);
-      lastSpokenRef.current = now;
-    } catch (err) {}
+    if (!voiceEnabled || freeze) return;
+    const currentVoiceMode = voiceMode;
+    if (currentVoiceMode === 'disable') return;
+    
+    // Set up interval for continuous voice output
+    const voiceInterval = setInterval(() => {
+      if (!liveDetected || freeze) return;
+      
+      try {
+        const now = Date.now();
+        if (now - lastSpokenRef.current >= LIVE_SPEAK_COOLDOWN) {
+          const textToSpeak = currentVoiceMode === 'real' ? liveDetected.realName : liveDetected.family;
+          const ok = safeSpeak(textToSpeak);
+          if (ok) {
+            lastSpokenRef.current = now;
+          }
+        }
+      } catch (err) {}
+    }, LIVE_SPEAK_COOLDOWN);
+    
+    // Also speak immediately when color changes
+    if (liveDetected) {
+      try {
+        const now = Date.now();
+        if (now - lastSpokenRef.current >= LIVE_SPEAK_COOLDOWN) {
+          const textToSpeak = currentVoiceMode === 'real' ? liveDetected.realName : liveDetected.family;
+          const ok = safeSpeak(textToSpeak);
+          if (ok) {
+            lastSpokenRef.current = now;
+          }
+        }
+      } catch (err) {}
+    }
+    
+    return () => {
+      clearInterval(voiceInterval);
+    };
   }, [liveDetected, voiceEnabled, freeze, voiceMode]);
 
   const startDetection = () => {
@@ -665,13 +1006,13 @@ const ColorDetector: React.FC<ColorDetectorProps> = ({ onBack, openSettings, voi
           // Schedule a short debounce clear so intermittent misses don't erase the last known detection immediately
           try {
             if (debounceClearRef.current) { clearTimeout(debounceClearRef.current as any); debounceClearRef.current = null; }
-            debounceClearRef.current = setTimeout(() => { try { setLiveDetected(null); } catch (_e) {} debounceClearRef.current = null; }, 1600) as unknown as number;
+            debounceClearRef.current = setTimeout(() => { try { setLiveDetected(null); } catch (_e) {} debounceClearRef.current = null; }, 800) as unknown as number;
           } catch (_e) { setLiveDetected(null); }
         }).catch(() => {
           setLiveDetected(null);
         });
       }
-    }, 800);
+    }, 200);
   };
 
   const stopDetection = () => { if (intervalRef.current) clearInterval(intervalRef.current); intervalRef.current = null; };
@@ -1649,6 +1990,11 @@ const ColorDetector: React.FC<ColorDetectorProps> = ({ onBack, openSettings, voi
                            style={styles.cameraInner}
                            device={finalDevice}
                            isActive={!freeze || capturing}
+                           onError={(err: any) => {
+                             console.error('VisionCamera onError:', err);
+                             const message = err?.message || err?.code || 'Camera error';
+                             setCameraError(message);
+                           }}
                            photo={true}
                            {...(frameProcessor ? { frameProcessor, frameProcessorFps: 2 } : {})}
                          />
@@ -1675,7 +2021,7 @@ const ColorDetector: React.FC<ColorDetectorProps> = ({ onBack, openSettings, voi
 
     
    
-  <View pointerEvents="none" style={[styles.absoluteOverlay, { width: previewSize?.width ?? '100%', height: previewSize?.height ?? '100%' }]}> 
+  <View pointerEvents="box-none" style={[styles.absoluteOverlay, { width: previewSize?.width ?? '100%', height: previewSize?.height ?? '100%' }]}> 
                {tapMarker && previewSize && (
                  <View style={styles.tapMarkerRoot} pointerEvents="none">
                    <View style={[styles.tapMarkerDot, { left: Math.round(tapMarker.x - (18/2)), top: Math.round(tapMarker.y - (18/2)) }]} />
@@ -1713,6 +2059,89 @@ const ColorDetector: React.FC<ColorDetectorProps> = ({ onBack, openSettings, voi
                   ]}
                 />
               )}
+              {/* Show green dot at exact detection point */}
+              {detectionDot && !freeze && !selectedImageUri && (
+                <View
+                  pointerEvents="none"
+                  style={[
+                    styles.detectionDot,
+                    {
+                      left: detectionDot.x - 8,
+                      top: detectionDot.y - 8,
+                    },
+                  ]}
+                />
+              )}
+              
+              {/* Two-box white balance system */}
+              {!freeze && !selectedImageUri && previewSize && (
+                <View style={styles.twoBoxContainer}>
+                  {(() => {
+                    const boxSizePixels = referenceBoxSizeInches * PIXELS_PER_INCH;
+                    const leftBoxX = previewSize.width * 0.25 - boxSizePixels / 2;
+                    const leftBoxY = previewSize.height * 0.5 - boxSizePixels / 2;
+                    const rightBoxX = previewSize.width * 0.75 - boxSizePixels / 2;
+                    const rightBoxY = previewSize.height * 0.5 - boxSizePixels / 2;
+                    
+                    return (
+                      <>
+                        {/* Left box (rendered only when white balance is enabled) */}
+                        {leftBoxEnabled && (
+                          <View style={[
+                            styles.whiteBalanceBox,
+                            {
+                              left: leftBoxX,
+                              top: leftBoxY,
+                              width: boxSizePixels,
+                              height: boxSizePixels,
+                            }
+                          ]}>
+                            <Text style={styles.whiteBalanceBoxLabel}>Place white paper here</Text>
+                          </View>
+                        )}
+                        
+                        {/* Right box */}
+                        <View style={[
+                          styles.whiteBalanceBox,
+                          {
+                            left: rightBoxX,
+                            top: rightBoxY,
+                            width: boxSizePixels,
+                            height: boxSizePixels,
+                          }
+                        ]}>
+                          <Text style={styles.whiteBalanceBoxLabel}>Put color to measure here</Text>
+                        </View>
+                      </>
+                    );
+                  })()}
+                </View>
+              )}
+              
+              {/* White balance warning */}
+              {!freeze && !selectedImageUri && leftBoxEnabled && whiteBalanceStatus.status !== 'ok' && (
+                <View style={styles.whiteBalanceWarning}>
+                  <Text style={styles.whiteBalanceWarningText}>{whiteBalanceStatus.message}</Text>
+                </View>
+              )}
+              {cameraError && (
+                <TouchableOpacity style={styles.cameraErrorBanner} activeOpacity={0.8} onPress={() => setCameraError(null)}>
+                  <Text style={styles.cameraErrorText}>{cameraError}</Text>
+                </TouchableOpacity>
+              )}
+              
+              {/* Toggle for left box */}
+              {!freeze && !selectedImageUri && (
+                <TouchableOpacity 
+                  style={styles.whiteBalanceToggle}
+                  onPress={() => setLeftBoxEnabled(!leftBoxEnabled)}
+                  activeOpacity={0.7}
+                >
+                  <Text style={styles.whiteBalanceToggleText}>
+                    {leftBoxEnabled ? 'Disable White Balance' : 'Enable White Balance'}
+                  </Text>
+                </TouchableOpacity>
+              )}
     </View>
             {!freeze && (
               <Text style={styles.crosshairHint}>Aim the box to the color you want to detect.</Text>
@@ -1747,6 +2176,22 @@ const ColorDetector: React.FC<ColorDetectorProps> = ({ onBack, openSettings, voi
         )}
 
         <View style={styles.infoArea}>
+          {/* TEMPORARY: Comparison view - Detected vs Matched */}
+          {detectedRgb && displayDetected && (
+            <View style={styles.comparisonContainer}>
+              <View style={styles.comparisonItem}>
+                <Text style={styles.comparisonLabel}>Your Color</Text>
+                <View style={[styles.comparisonSwatch, { backgroundColor: rgbToHex(detectedRgb.r, detectedRgb.g, detectedRgb.b) }]} />
+                <Text style={styles.comparisonHex}>{rgbToHex(detectedRgb.r, detectedRgb.g, detectedRgb.b)}</Text>
+              </View>
+              <View style={styles.comparisonItem}>
+                <Text style={styles.comparisonLabel}>Matched</Text>
+                <View style={[styles.comparisonSwatch, { backgroundColor: displayDetected.hex }]} />
+                <Text style={styles.comparisonHex}>{displayDetected.hex}</Text>
+              </View>
+            </View>
+          )}
+          
           <View style={styles.colorInfoContainer}>
             {/* Color swatch on top */}
             <View style={styles.colorSwatchContainer}>

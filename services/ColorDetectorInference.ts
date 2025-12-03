@@ -1,153 +1,394 @@
 import ColorTFLite from './ColorTFLiteNative'
-import { findClosestColor } from './ColorMatcher'
+import ColorMatcherNative from './ColorMatcherNative'
 
-export type InferenceResult = { family: string; hex: string; realName: string; score?: number; confidence?: number }
+export type InferenceResult = { family: string; hex: string; realName: string; score?: number; confidence?: number; detectedRgb?: { r: number; g: number; b: number }; matchedHex?: string }
+
+// Cache initialization state to avoid repeated checks
+let modelLoaded: boolean | null = null
+let modelLoadPromise: Promise<boolean> | null = null
+let matcherInitialized: boolean | null = null
+let matcherInitPromise: Promise<boolean> | null = null
+let labelsCache: string[] | null = null
+
+const DEBUG = false // Set to true for debugging
+
+function log(...args: any[]) {
+  if (DEBUG) console.log(...args)
+}
+
+type HueInfo = { h: number; s: number; l: number }
+
+function rgbToHueInfo(r: number, g: number, b: number): HueInfo {
+  const rn = Math.max(0, Math.min(255, r)) / 255
+  const gn = Math.max(0, Math.min(255, g)) / 255
+  const bn = Math.max(0, Math.min(255, b)) / 255
+  const max = Math.max(rn, gn, bn)
+  const min = Math.min(rn, gn, bn)
+  const delta = max - min
+  let h = 0
+  if (delta === 0) {
+    h = 0
+  } else if (max === rn) {
+    h = ((gn - bn) / delta) % 6
+  } else if (max === gn) {
+    h = (bn - rn) / delta + 2
+  } else {
+    h = (rn - gn) / delta + 4
+  }
+  h *= 60
+  if (h < 0) h += 360
+  const l = (max + min) / 2
+  const s = delta === 0 ? 0 : delta / (1 - Math.abs(2 * l - 1))
+  return { h, s, l }
+}
 
 async function ensureModelLoaded() {
-  try {
-    console.log("ColorDetectorInference: Attempting to load TensorFlow Lite model...");
-    await ColorTFLite.loadModel();
-    console.log("ColorDetectorInference: TensorFlow Lite model loaded successfully!");
-    return true;
-  } catch (e) {
-    console.log("ColorDetectorInference: Failed to load TensorFlow Lite model:", e);
-    return false;
-  }
+  // Return cached result if available
+  if (modelLoaded !== null) return modelLoaded
+  // Return existing promise if already loading
+  if (modelLoadPromise) return modelLoadPromise
+  
+  modelLoadPromise = (async () => {
+    try {
+      log("ColorDetectorInference: Loading TensorFlow Lite model...");
+      await ColorTFLite.loadModel();
+      modelLoaded = true
+      log("ColorDetectorInference: Model loaded successfully!");
+      return true;
+    } catch (e) {
+      log("ColorDetectorInference: Failed to load model:", e);
+      modelLoaded = false
+      return false;
+    } finally {
+      modelLoadPromise = null
+    }
+  })()
+  
+  return modelLoadPromise
 }
 
+async function ensureMatcherInitialized() {
+  // Return cached result if available
+  if (matcherInitialized !== null) return matcherInitialized
+  // Return existing promise if already initializing
+  if (matcherInitPromise) return matcherInitPromise
+  
+  matcherInitPromise = (async () => {
+    try {
+      const initialized = await ColorMatcherNative.isInitialized();
+      if (!initialized) {
+        log("ColorDetectorInference: Initializing native CAM16-UCS matcher...");
+        await ColorMatcherNative.initialize();
+        log("ColorDetectorInference: Native CAM16-UCS matcher initialized!");
+      }
+      matcherInitialized = true
+      return true;
+    } catch (e) {
+      log("ColorDetectorInference: Failed to initialize native matcher:", e);
+      matcherInitialized = false
+      return false;
+    } finally {
+      matcherInitPromise = null
+    }
+  })()
+  
+  return matcherInitPromise
+}
+
+async function findClosestColorNative(rgb: number[], topN = 3) {
+  // Ensure matcher is initialized (should already be done on app start)
+  await ensureMatcherInitialized();
+  // Native matcher is fast and should always work
+  return await ColorMatcherNative.findClosestColor(rgb, topN);
+}
+
+// Initialize early (call this on app start)
+export async function initializeColorDetection() {
+  // Initialize both in parallel
+  await Promise.all([
+    ensureModelLoaded(),
+    ensureMatcherInitialized()
+  ])
+}
+
+// Light preprocessing - shadow lifting is now handled natively in CAM16-UCS conversion
+// This only does minimal corrections for extreme cases
 function preprocessRGBForShadow(rgb: { r: number; g: number; b: number }) {
-  // Make a simple, fast preprocessing step to reduce shadow/overexposure issues
-  // Strategy:
-  // - Check if pixel is too dark/invalid (V < 0.08 or L < 5); if so, skip or recover
-  // - If pixel is very dark but has chromatic info, boost chromaticity and set a reasonable intensity
-  // - If pixel is very bright, slightly clamp to avoid wash-out
-  // - Apply light gamma correction for dark pixels
   try {
-    let { r, g, b } = rgb;
-    r = Math.round(r); g = Math.round(g); b = Math.round(b);
-    const avg = (r + g + b) / 3;
+    let r = Math.round(rgb.r)
+    let g = Math.round(rgb.g)
+    let b = Math.round(rgb.b)
+    const maxRGB = Math.max(r, g, b)
 
-    // Check HSV Value (V = max(r,g,b) / 255)
-    const maxRGB = Math.max(r, g, b);
-    const hsvValue = maxRGB / 255;
-    
-    // Check LAB Lightness approximation: L = 0.299*R + 0.587*G + 0.114*B (simplified)
-    const labLApprox = (0.299 * r + 0.587 * g + 0.114 * b) / 255 * 100;
-
-    // Skip or recover too-dark samples (V < 0.08 or L < 5)
-    if (hsvValue < 0.08 || labLApprox < 5) {
-      // Very dark; likely noise or invalid. Try to recover by boosting with a baseline
-      const sum = (r + g + b) || 1;
-      const nr = r / sum; const ng = g / sum; const nb = b / sum;
-      const recoveredIntensity = 80; // Set a minimum baseline for recovery
-      r = Math.round(nr * recoveredIntensity);
-      g = Math.round(ng * recoveredIntensity);
-      b = Math.round(nb * recoveredIntensity);
+    // Only handle extreme cases - native shadow lifting handles the rest
+    // Very dark (likely noise) - minimal recovery
+    if (maxRGB < 15) {
+      const sum = r + g + b || 1
+      const scale = 60 / sum
+      return {
+        r: Math.min(255, Math.max(0, Math.round(r * scale))),
+        g: Math.min(255, Math.max(0, Math.round(g * scale))),
+        b: Math.min(255, Math.max(0, Math.round(b * scale)))
+      }
     }
 
-    let outR = r, outG = g, outB = b;
-
-    // Dark (shadow) handling: boost chromaticity and set moderate intensity
-    if (avg < 90) {
-      const sum = (r + g + b) || 1;
-      const nr = r / sum; const ng = g / sum; const nb = b / sum;
-      // pick a target intensity so the color is visible but not clipped
-      const targetIntensity = Math.min(220, Math.max(120, Math.round(avg * 1.8)));
-      outR = Math.round(nr * targetIntensity);
-      outG = Math.round(ng * targetIntensity);
-      outB = Math.round(nb * targetIntensity);
-      // gentle gamma to lift midtones
-      const gamma = 0.85;
-      outR = Math.round(255 * Math.pow(outR / 255, gamma));
-      outG = Math.round(255 * Math.pow(outG / 255, gamma));
-      outB = Math.round(255 * Math.pow(outB / 255, gamma));
+    // Very bright (overexposed) - slight reduction
+    if (maxRGB > 250) {
+      const scale = 250 / maxRGB
+      return {
+        r: Math.min(255, Math.max(0, Math.round(r * scale))),
+        g: Math.min(255, Math.max(0, Math.round(g * scale))),
+        b: Math.min(255, Math.max(0, Math.round(b * scale)))
+      }
     }
 
-    // Bright (overexposed) handling: scale down a bit to recover color
-    if (avg > 230) {
-      const maxc = Math.max(r, g, b) || 1;
-      const scale = 230 / maxc;
-      outR = Math.round(outR * scale);
-      outG = Math.round(outG * scale);
-      outB = Math.round(outB * scale);
-    }
-
-    // Clamp values
-    outR = Math.min(255, Math.max(0, outR));
-    outG = Math.min(255, Math.max(0, outG));
-    outB = Math.min(255, Math.max(0, outB));
-
-    return { r: outR, g: outG, b: outB };
+    // For normal cases, return as-is - native shadow lifting will handle it
+    return { r, g, b }
   } catch (e) {
-    return rgb;
+    return rgb
   }
 }
 
-export async function inferColorFromRGB(rgb: { r: number; g: number; b: number }, confidenceThreshold = 0.65): Promise<InferenceResult | null> {
+function getLabels(): string[] {
+  if (labelsCache === null) {
+    try {
+      labelsCache = require('../android/app/src/main/assets/labels.json') as string[]
+    } catch (e) {
+      labelsCache = []
+    }
+  }
+  return labelsCache
+}
+
+export async function inferColorFromRGB(rgb: { r: number; g: number; b: number }, confidenceThreshold = 0.50): Promise<InferenceResult | null> {
   try {
-    console.log("ColorDetectorInference: Starting color inference for RGB:", rgb);
     const loaded = await ensureModelLoaded();
-    // Preprocess the RGB to reduce shadow/overexposure errors
+    // Use the RGB as-is if it's already white-balance corrected (from ColorDetector.tsx)
+    // Only apply minimal preprocessing for extreme cases that might break white balance
     const pre = preprocessRGBForShadow(rgb);
     
     if (!loaded) {
-      console.log("ColorDetectorInference: Model not loaded, using fallback ColorMatcher");
-      const match = findClosestColor([rgb.r, rgb.g, rgb.b], 3);
-      return { family: match.closest_match.family || match.closest_match.name, hex: match.closest_match.hex, realName: match.closest_match.name, confidence: match.closest_match.confidence };
+      // Use preprocessed RGB (which should already be white-balance corrected)
+      const match = await findClosestColorNative([pre.r, pre.g, pre.b], 3);
+      return { 
+        family: match.closest_match.family || match.closest_match.name, 
+        hex: match.closest_match.hex, 
+        realName: match.closest_match.name, 
+        confidence: match.closest_match.confidence,
+        detectedRgb: { r: rgb.r, g: rgb.g, b: rgb.b },
+        matchedHex: match.closest_match.hex
+      };
     }
 
-    console.log("ColorDetectorInference: Using TensorFlow Lite model for inference (native CAM16-UCS)");
     const res = await ColorTFLite.predictFromRgb(pre.r, pre.g, pre.b);
-    console.log("ColorDetectorInference: TensorFlow Lite prediction result:", res);
     
     if (!res) {
-      console.log("ColorDetectorInference: TensorFlow Lite prediction failed, using fallback");
-      const match = findClosestColor([rgb.r, rgb.g, rgb.b], 3);
-      return { family: match.closest_match.family || match.closest_match.name, hex: match.closest_match.hex, realName: match.closest_match.name, confidence: match.closest_match.confidence };
+      // Use preprocessed RGB (which should already be white-balance corrected)
+      const match = await findClosestColorNative([pre.r, pre.g, pre.b], 3);
+      return { 
+        family: match.closest_match.family || match.closest_match.name, 
+        hex: match.closest_match.hex, 
+        realName: match.closest_match.name, 
+        confidence: match.closest_match.confidence,
+        detectedRgb: { r: rgb.r, g: rgb.g, b: rgb.b },
+        matchedHex: match.closest_match.hex
+      };
     }
     
     const score = res.score ?? 0;
-    const confidenceFromModel = Number((score * 100).toFixed(2));
+    const confidenceFromModel = Math.round(score * 100);
     const idx = res.index;
-    const detectedJ = Array.isArray(res.cam16) ? res.cam16[0] : ((0.299 * pre.r + 0.587 * pre.g + 0.114 * pre.b) / 255) * 100;
-    console.log("ColorDetectorInference: Final prediction - Index:", idx, "Score:", score, "Threshold:", confidenceThreshold, "J'≈", detectedJ);
     
-    // Two-stage detection: Model + Delta E validation (ColorBlindPal approach)
-    // Use matcher on preprocessed RGB as well to be consistent under shadow/lighting
-    const matcherResult = findClosestColor([pre.r, pre.g, pre.b], 3);
+    // Get matcher result for validation and hex/name
+    const matcherResult = await findClosestColorNative([pre.r, pre.g, pre.b], 3);
     const matcherConfidence = matcherResult.closest_match.confidence || 50;
     
-    if (score >= confidenceThreshold) {
-      const labels = require('../android/app/src/main/assets/labels.json') as string[];
-      const label = labels[idx] || '';
-      const datasetFamily = (matcherResult.closest_match.family || '').trim();
-      const chosenFamily = datasetFamily || label || matcherResult.closest_match.name;
+    const labels = getLabels();
+    const label = labels[idx] || '';
+    const matcherFamilyRaw = matcherResult.closest_match.family || matcherResult.closest_match.name || '';
+    const datasetFamily = matcherFamilyRaw.trim();
+    const modelFamily = (label || '').trim();
+    
+    // Helper to detect neutral families - distinguish white from gray
+    const WHITE_FAMILY_REGEX = /(white|snow|ivory|cream)/i;
+    const GRAY_FAMILY_REGEX = /(gray|grey|silver|ash)/i;
+    const BLACK_FAMILY_REGEX = /(black|ebony|charcoal)/i;
+    
+    const modelIsWhite = modelFamily ? WHITE_FAMILY_REGEX.test(modelFamily) : false;
+    const modelIsGray = modelFamily ? GRAY_FAMILY_REGEX.test(modelFamily) : false;
+    const modelIsNeutral = modelIsWhite || modelIsGray || (modelFamily ? /(black|neutral)/i.test(modelFamily) : false);
+    
+    const matcherIsWhite = datasetFamily ? WHITE_FAMILY_REGEX.test(datasetFamily) : false;
+    const matcherIsGray = datasetFamily ? GRAY_FAMILY_REGEX.test(datasetFamily) : false;
+    const matcherIsNeutral = matcherIsWhite || matcherIsGray || (datasetFamily ? /(black|neutral)/i.test(datasetFamily) : false);
+    
+    // Check if detected RGB is actually white (high brightness, low saturation)
+    // Use preprocessed RGB (after white balance correction) for accurate detection
+    // Match the native matcher threshold: min >= 180, delta <= 35
+    const isDetectedWhite = (() => {
+      // Use preprocessed RGB which has white balance correction applied
+      const minVal = Math.min(pre.r, pre.g, pre.b);
+      const maxVal = Math.max(pre.r, pre.g, pre.b);
+      const delta = maxVal - minVal;
+      // More lenient threshold to catch white paper under various lighting
+      return minVal >= 180 && delta <= 35;
+    })();
+    
+    // Also check original RGB as fallback (in case preprocessing reduced values)
+    const isOriginalWhite = (() => {
+      const minVal = Math.min(rgb.r, rgb.g, rgb.b);
+      const maxVal = Math.max(rgb.r, rgb.g, rgb.b);
+      const delta = maxVal - minVal;
+      return minVal >= 180 && delta <= 35;
+    })();
+    
+    // Consider it white if either check passes
+    const isWhite = isDetectedWhite || isOriginalWhite;
 
-      // If the detection is from a very dark region, prefer the matcher a bit more
-      // Determine luminance (L) to detect shadow situations
-      const detectedL = detectedJ;
-      let blendedConfidence = Math.round((confidenceFromModel + matcherConfidence) / 2);
-      if (detectedL < 30) {
-        // shadow: weighted blend favoring matcher
-        blendedConfidence = Math.round((confidenceFromModel * 0.4) + (matcherConfidence * 0.6));
-      } else if (detectedL < 55) {
-        // somewhat dim: slight preference to matcher
-        blendedConfidence = Math.round((confidenceFromModel * 0.45) + (matcherConfidence * 0.55));
-      }
-
-      console.log("ColorDetectorInference: Model accepted - blending model conf:", confidenceFromModel, "with matcher conf:", matcherConfidence, "= ", blendedConfidence, "(L=", detectedL, ")");
-
-      return { family: chosenFamily, hex: matcherResult.closest_match.hex, realName: matcherResult.closest_match.name, score, confidence: blendedConfidence };
+    // Hue-based family hints (helps differentiate yellow vs green, etc.)
+    const hueInfo = rgbToHueInfo(pre.r, pre.g, pre.b);
+    const isYellowHue = hueInfo.s >= 0.15 && hueInfo.h >= 45 && hueInfo.h <= 80 && hueInfo.l >= 0.3;
+    const isLimeHue = hueInfo.s >= 0.2 && hueInfo.h > 80 && hueInfo.h <= 105;
+    
+    // If model returns empty, fall back to matcher family immediately
+    let chosenFamily = modelFamily || datasetFamily || matcherResult.closest_match.name;
+    
+    // If model and matcher agree, boost confidence
+    const familiesMatch = modelFamily && datasetFamily && 
+                         (modelFamily.toLowerCase() === datasetFamily.toLowerCase() || 
+                          modelFamily.toLowerCase().includes(datasetFamily.toLowerCase()) ||
+                          datasetFamily.toLowerCase().includes(modelFamily.toLowerCase()));
+    
+    let finalConfidence = confidenceFromModel;
+    
+    // Prefer matcher if it has significantly higher confidence (more consistent)
+    const matcherMuchBetter = matcherConfidence > confidenceFromModel + 15;
+    
+    if (score >= confidenceThreshold && familiesMatch) {
+      // Both agree - boost confidence (model weighted more)
+      finalConfidence = Math.round((confidenceFromModel * 0.7) + (matcherConfidence * 0.3));
+      finalConfidence = Math.min(100, finalConfidence);
+    } else if (score >= confidenceThreshold && !matcherMuchBetter) {
+      // Model confident and matcher not much better - use model confidence (prioritize model)
+      finalConfidence = confidenceFromModel;
+    } else if (matcherMuchBetter && matcherConfidence >= 70) {
+      // Matcher is much better and has high confidence - prefer matcher for consistency
+      chosenFamily = datasetFamily || chosenFamily;
+      finalConfidence = matcherConfidence;
+    } else if (score >= confidenceThreshold) {
+      // Model confident but matcher might be better - blend
+      finalConfidence = Math.round((confidenceFromModel * 0.6) + (matcherConfidence * 0.4));
+    } else {
+      // Model not confident - use matcher as fallback
+      chosenFamily = datasetFamily || chosenFamily;
+      finalConfidence = matcherConfidence;
     }
     
-    const datasetFamily = (matcherResult.closest_match.family || '').trim();
-    const fallbackFamily = datasetFamily || matcherResult.closest_match.name;
-    console.log("ColorDetectorInference: Model rejected, using matcher fallback with confidence:", matcherConfidence);
-    // Use matcher confidence for fallback (preprocessed input used)
-    return { family: fallbackFamily, hex: matcherResult.closest_match.hex, realName: matcherResult.closest_match.name, score, confidence: matcherConfidence };
+    // Special handling for white detection - FORCE white when RGB clearly indicates white
+    if (isWhite) {
+      // If matcher found white, ALWAYS prefer it over gray (even if model is confident about gray)
+      if (matcherIsWhite) {
+        chosenFamily = datasetFamily || chosenFamily;
+        finalConfidence = Math.max(finalConfidence, matcherConfidence);
+        // Boost confidence significantly when input is white and matcher found white
+        if (matcherConfidence >= 70) {
+          finalConfidence = Math.min(100, finalConfidence + 10);
+        }
+      }
+      // If model found gray but matcher found white, prefer white
+      else if (modelIsGray && matcherIsWhite) {
+        chosenFamily = datasetFamily || chosenFamily;
+        finalConfidence = Math.max(finalConfidence, matcherConfidence);
+      }
+      // If both found white, boost confidence
+      else if (modelIsWhite && matcherIsWhite) {
+        finalConfidence = Math.min(100, Math.round((finalConfidence * 0.6) + (matcherConfidence * 0.4)));
+      }
+      // CRITICAL: If input is clearly white but both matcher and model say gray, FORCE white
+      else if ((modelIsGray || !modelFamily) && matcherIsGray) {
+        // Check alternatives for white first
+        if (matcherResult.alternatives) {
+          const whiteAlternative = matcherResult.alternatives.find((alt: any) => {
+            const altFamily = (alt.family || alt.name || '').toLowerCase();
+            return /(white|snow|ivory|cream)/i.test(altFamily);
+          });
+          if (whiteAlternative && (whiteAlternative.confidence ?? 0) >= 50) {
+            const altConfidence = whiteAlternative.confidence ?? 75;
+            chosenFamily = whiteAlternative.family || whiteAlternative.name;
+            finalConfidence = Math.max(altConfidence, 75); // Minimum 75% for white
+          } else {
+            // Force white family even if not in dataset - RGB clearly indicates white
+            chosenFamily = 'White';
+            finalConfidence = 85; // High confidence for white detection
+          }
+        } else {
+          // No alternatives, but RGB is clearly white - force white
+          chosenFamily = 'White';
+          finalConfidence = 85;
+        }
+      }
+    }
+    
+    // If hue clearly indicates yellow but the dataset/model say green, override to Yellow
+    const familyLooksGreen = /green/i.test(chosenFamily) && !/yellow/i.test(chosenFamily);
+    const nameSuggestsYellow = /(yellow|gold)/i.test(matcherResult.closest_match.name || '');
+    const familySuggestsYellow = /(yellow|gold)/i.test(matcherResult.closest_match.family || '');
+    if (!isWhite && (nameSuggestsYellow || familySuggestsYellow || isYellowHue) && familyLooksGreen) {
+      chosenFamily = 'Yellow';
+    } else if (!isWhite && isLimeHue && /yellow/i.test(chosenFamily) && !/green/i.test(chosenFamily)) {
+      // Lime hues are closer to green than yellow
+      chosenFamily = 'Green';
+    }
+
+    // If families disagree and the model thinks it's gray/neutral but matcher finds a vivid color,
+    // prefer the matcher family to avoid "Family of: Gray" false positives.
+    if (!familiesMatch && !isWhite) {
+      if (modelIsNeutral && !matcherIsNeutral) {
+        chosenFamily = datasetFamily || chosenFamily;
+      } else if (!modelFamily && datasetFamily) {
+        chosenFamily = datasetFamily;
+      } else if (matcherConfidence >= 75 && confidenceFromModel < 60) {
+        // If matcher is very confident and model is uncertain, prefer matcher
+        chosenFamily = datasetFamily || chosenFamily;
+      }
+    }
+    
+    // Determine realName - use meaningful labels when we override families (e.g., White, Yellow)
+    let finalRealName = matcherResult.closest_match.name;
+    if (isWhite && chosenFamily === 'White' && !matcherIsWhite) {
+      finalRealName = 'White';
+    } else if (!isWhite && chosenFamily === 'Yellow' && !/yellow/i.test(finalRealName)) {
+      finalRealName = 'Yellow';
+    }
+    
+    return { 
+      family: chosenFamily, 
+      hex: matcherResult.closest_match.hex, 
+      realName: finalRealName, 
+      score, 
+      confidence: finalConfidence,
+      // Add detected RGB for comparison view
+      detectedRgb: { r: rgb.r, g: rgb.g, b: rgb.b },
+      matchedHex: matcherResult.closest_match.hex
+    };
   } catch (e) {
-    console.log("ColorDetectorInference: Error during inference:", e);
-    try { const match = findClosestColor([rgb.r, rgb.g, rgb.b], 3); return { family: match.closest_match.family || match.closest_match.name, hex: match.closest_match.hex, realName: match.closest_match.name, confidence: match.closest_match.confidence } } catch (_e2) { return null }
+    log("ColorDetectorInference: Error:", e);
+    // Try native matcher as last resort (should always work)
+    try { 
+      const match = await findClosestColorNative([rgb.r, rgb.g, rgb.b], 3); 
+      return { 
+        family: match.closest_match.family || match.closest_match.name, 
+        hex: match.closest_match.hex, 
+        realName: match.closest_match.name, 
+        confidence: match.closest_match.confidence,
+        detectedRgb: { r: rgb.r, g: rgb.g, b: rgb.b },
+        matchedHex: match.closest_match.hex
+      } 
+    } catch (_e2) {
+      // If native matcher also fails, return null
+      log("ColorDetectorInference: Native matcher also failed:", _e2);
+      return null
+    }
   }
 }
 

@@ -2,7 +2,7 @@ import { NativeModules } from 'react-native'
 
 const { ColorTFLite } = NativeModules
 
-export type PredictResult = { index: number; score: number; cam16?: number[] }
+export type PredictResult = { index: number; score: number; lab?: number[] }
 
 export default {
   loadModel(): Promise<boolean> {
@@ -18,7 +18,7 @@ export default {
     return new Promise((resolve, reject) => {
       ColorTFLite.predict(l, a, b, (err: any, res: any) => {
         if (err) return reject(err)
-        resolve({ index: res.index, score: res.score, cam16: res.cam16 })
+        resolve({ index: res.index, score: res.score, lab: res.lab })
       })
     })
   },
@@ -27,7 +27,7 @@ export default {
     return new Promise((resolve, reject) => {
       ColorTFLite.predictFromRgb(r, g, b, (err: any, res: any) => {
         if (err) return reject(err)
-        resolve({ index: res.index, score: res.score, cam16: res.cam16 })
+        resolve({ index: res.index, score: res.score, lab: res.lab })
       })
     })
   },

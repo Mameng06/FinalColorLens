@@ -10,8 +10,15 @@ import YTembedScreen from './screens/YTembedScreen/YTembedScreen';
 import ColorDetector from './screens/ColorDetector/ColorDetector';
 import CLSetting from './screens/CLSetting/CLSetting';
 import AboutScreen from './screens/AboutScreen/About';
+import { initializeColorDetection } from './services/ColorDetectorInference';
 
 const App: React.FC = () => {
+  // Initialize color detection early (non-blocking)
+  React.useEffect(() => {
+    initializeColorDetection().catch(() => {
+      // Silently fail - will retry on first use
+    });
+  }, []);
 
   const [currentScreen, setCurrentScreen] = useState<'splash' | 'welcome' | 'youtube' | 'colorDetector' | 'settings' | 'about'>('splash');
   const [voiceEnabled, setVoiceEnabled] = useState(true);

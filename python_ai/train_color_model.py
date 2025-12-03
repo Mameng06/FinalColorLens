@@ -7,7 +7,7 @@ from sklearn.preprocessing import LabelEncoder
 from tensorflow.keras.utils import to_categorical
 import argparse
 import pickle
-import colour   # NEW — for CAM16-UCS conversions
+import colour
 
 BASE = Path(__file__).resolve().parent
 COLORMODEL = BASE.parent.joinpath('colormodel.json')
@@ -26,17 +26,17 @@ out_dir = Path(args.output_dir)
 out_dir.mkdir(parents=True, exist_ok=True)
 
 # -----------------------------------------------
-# Helper for converting any color to CAM16-UCS
+# Helper for converting any color to CIE Lab
 # -----------------------------------------------
-def rgb_to_cam16ucs(rgb):
+def rgb_to_lab(rgb):
     """
     rgb: [R,G,B] in 0–255
-    returns J', a', b'
+    returns L*, a*, b*
     """
     rgb01 = np.array(rgb) / 255.0
     xyz = colour.sRGB_to_XYZ(rgb01)
-    cam16 = colour.XYZ_to_CAM16UCS(xyz)
-    return np.array(cam16, dtype=np.float32)
+    lab = colour.XYZ_to_Lab(xyz)
+    return np.array(lab, dtype=np.float32)
 
 # -----------------------------------------------
 # Load your JSON
@@ -47,9 +47,9 @@ with open(COLORMODEL, 'r', encoding='utf-8') as f:
 label_field = args.label_field
 
 # -----------------------------------------------
-# Convert all colors → CAM16-UCS
+# Convert all colors → Lab
 # -----------------------------------------------
-cam16ucs_list = []
+lab_list = []
 labels = []
 
 for item in data:
@@ -57,14 +57,14 @@ for item in data:
     if not rgb:
         continue
 
-    cam = rgb_to_cam16ucs(rgb)
-    cam16ucs_list.append(cam)
+    lab = rgb_to_lab(rgb)
+    lab_list.append(lab)
     labels.append(item.get(label_field) or item.get("name"))
 
-if len(cam16ucs_list) == 0:
-    raise SystemExit("No valid RGB entries for CAM16-UCS.")
+if len(lab_list) == 0:
+    raise SystemExit("No valid RGB entries for Lab.")
 
-base_vectors = np.array(cam16ucs_list, dtype=np.float32)
+base_vectors = np.array(lab_list, dtype=np.float32)
 labels = np.array(labels, dtype=object)
 
 N = args.samples_per_class
@@ -112,13 +112,13 @@ num_classes = y_cat.shape[1]
 
 # -----------------------------------------------
 # Scale CAM16-UCS values
-# CAM16 ranges are small, so normalize smartly
-# J′ ≈ 0–100, a′/b′ often ≈ –50 to +50
+# Lab ranges are small, so normalize smartly
+# L* ≈ 0–100, a*/b* roughly –128..128
 # -----------------------------------------------
 X_scaled = np.empty_like(X)
 X_scaled[:,0] = X[:,0] / 100.0
-X_scaled[:,1] = X[:,1] / 50.0
-X_scaled[:,2] = X[:,2] / 50.0
+X_scaled[:,1] = X[:,1] / 128.0
+X_scaled[:,2] = X[:,2] / 128.0
 
 # -----------------------------------------------
 # High-accuracy model architecture

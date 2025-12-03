@@ -85,6 +85,7 @@ export const styles = StyleSheet.create({
   tapMarkerRoot: { position: 'absolute', left: 0, top: 0, width: '100%', height: '100%', pointerEvents: 'none' },
   tapMarkerDot: { position: 'absolute', width: rf(18), height: rf(18), borderRadius: rf(9), backgroundColor: 'rgba(0,200,80,0.95)', borderWidth: 2, borderColor: '#fff', elevation: 8, shadowColor: '#000', shadowOffset: { width: 0, height: 2 }, shadowOpacity: 0.25, shadowRadius: 4 },
   debugSamplingBox: { position: 'absolute', borderWidth: 1, borderColor: '#FFFFFF', backgroundColor: 'rgba(0,255,0,0.15)', borderRadius: 2, zIndex: 1000, elevation: 10 },
+  detectionDot: { position: 'absolute', width: 16, height: 16, borderRadius: 8, backgroundColor: '#00FF00', borderWidth: 2, borderColor: '#FFFFFF', zIndex: 1001, elevation: 11, shadowColor: '#000', shadowOffset: { width: 0, height: 2 }, shadowOpacity: 0.3, shadowRadius: 4 },
   
   // Reference boxes styles
   referenceBoxContainer: { position: 'absolute', bottom: rf(12), left: 0, right: 0, flexDirection: 'row', justifyContent: 'center', alignItems: 'flex-end', elevation: 20 },
@@ -101,4 +102,21 @@ export const styles = StyleSheet.create({
   toggleButtonText: { color: '#fff', fontWeight: '700', fontSize: rf(14) },
   warningContainer: { position: 'absolute', top: rf(12), left: rf(12), right: rf(12), backgroundColor: 'rgba(255,100,100,0.9)', paddingVertical: rf(10), paddingHorizontal: rf(12), borderRadius: 8, elevation: 15, maxWidth: '100%' },
   warningText: { color: '#fff', fontSize: rf(14), fontWeight: '600', textAlign: 'center' },
+  // TEMPORARY: Comparison view styles
+  comparisonContainer: { flexDirection: 'row', justifyContent: 'space-around', alignItems: 'center', marginBottom: rf(16), paddingVertical: rf(12), paddingHorizontal: rf(8), backgroundColor: '#fff', borderRadius: rf(8), borderWidth: 1, borderColor: '#DDD', shadowColor: '#000', shadowOffset: { width: 0, height: 2 }, shadowOpacity: 0.1, shadowRadius: 4, elevation: 3 },
+  comparisonItem: { alignItems: 'center', flex: 1 },
+  comparisonLabel: { fontSize: rf(12), color: '#666', fontWeight: '600', marginBottom: rf(8) },
+  comparisonSwatch: { width: rf(80), height: rf(80), borderRadius: rf(8), borderWidth: 1, borderColor: '#DDD', marginBottom: rf(8), shadowColor: '#000', shadowOffset: { width: 0, height: 2 }, shadowOpacity: 0.15, shadowRadius: 4, elevation: 4 },
+  comparisonHex: { fontSize: rf(11), color: '#333', fontWeight: '700', fontFamily: 'monospace' },
+  // Two-box white balance system
+  twoBoxContainer: { position: 'absolute', left: 0, top: 0, right: 0, bottom: 0, pointerEvents: 'none' },
+  whiteBalanceBox: { position: 'absolute', borderWidth: 2, borderColor: '#FFFFFF', backgroundColor: 'rgba(255,255,255,0.1)', shadowColor: '#000', shadowOffset: { width: 0, height: 2 }, shadowOpacity: 0.3, shadowRadius: 4, elevation: 10 },
+  whiteBalanceBoxDisabled: { opacity: 0.3, borderColor: '#888' },
+  whiteBalanceBoxLabel: { position: 'absolute', bottom: rf(-24), left: 0, right: 0, fontSize: rf(11), color: '#FFFFFF', fontWeight: '600', textAlign: 'center', textShadowColor: '#000', textShadowOffset: { width: 0, height: 1 }, textShadowRadius: 2 },
+  whiteBalanceWarning: { position: 'absolute', top: rf(12), left: rf(12), right: rf(12), backgroundColor: 'rgba(255,100,100,0.95)', paddingVertical: rf(10), paddingHorizontal: rf(14), borderRadius: rf(8), elevation: 15, zIndex: 10000 },
+  whiteBalanceWarningText: { color: '#FFFFFF', fontSize: rf(13), fontWeight: '600', textAlign: 'center' },
+  whiteBalanceToggle: { position: 'absolute', bottom: rf(12), left: rf(12), backgroundColor: 'rgba(0,0,0,0.6)', paddingVertical: rf(8), paddingHorizontal: rf(12), borderRadius: rf(6), flexDirection: 'row', alignItems: 'center', elevation: 10, zIndex: 10000 },
+  whiteBalanceToggleText: { color: '#FFFFFF', fontSize: rf(12), fontWeight: '600', marginLeft: rf(6) },
+  cameraErrorBanner: { position: 'absolute', top: rf(44), left: rf(12), right: rf(12), backgroundColor: 'rgba(255,0,0,0.9)', paddingVertical: rf(10), paddingHorizontal: rf(12), borderRadius: rf(8), elevation: 20, zIndex: 10001 },
+  cameraErrorText: { color: '#FFF', fontSize: rf(13), fontWeight: '700', textAlign: 'center' },
 });

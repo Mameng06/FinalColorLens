@@ -1,6 +1,6 @@
 package com.colorlensv1.tflite
 
-import com.colorlensv1.color.Cam16Ucs
+import com.colorlensv1.color.LabColor
 import com.facebook.react.bridge.Arguments
 import com.facebook.react.bridge.Callback
 import com.facebook.react.bridge.ReactApplicationContext
@@ -43,7 +43,7 @@ class ColorTFLiteModule(reactContext: ReactApplicationContext) : ReactContextBas
     @ReactMethod
     fun predictFromRgb(r: Double, g: Double, b: Double, callback: Callback) {
         val interp = helper.interpreter ?: run {
-            println("ColorTFLite: Model not loaded, cannot run CAM16-UCS prediction")
+            println("ColorTFLite: Model not loaded, cannot run Lab prediction")
             callback.invoke("model_not_loaded", null)
             return
         }
@@ -52,29 +52,27 @@ class ColorTFLiteModule(reactContext: ReactApplicationContext) : ReactContextBas
         val gInt = g.roundToInt().coerceIn(0, 255)
         val bInt = b.roundToInt().coerceIn(0, 255)
 
-        println("ColorTFLite: Predicting from RGB -> CAM16-UCS for ($rInt,$gInt,$bInt)")
-
-        val cam = try {
-            Cam16Ucs.rgbToCam16Ucs(rInt, gInt, bInt)
+        val lab = try {
+            LabColor.rgbToLab(rInt, gInt, bInt)
         } catch (e: Exception) {
-            println("ColorTFLite: CAM16-UCS conversion failed - ${e.message}")
-            callback.invoke("cam16_conversion_failed", null)
+            println("ColorTFLite: Lab conversion failed - ${e.message}")
+            callback.invoke("lab_conversion_failed", null)
             return
         }
 
-        if (cam.size < 3 || cam[0].isNaN() || cam[1].isNaN() || cam[2].isNaN()) {
-            println("ColorTFLite: Invalid CAM16-UCS output for ($rInt,$gInt,$bInt)")
-            callback.invoke("cam16_invalid", null)
+        if (lab.size < 3 || lab[0].isNaN() || lab[1].isNaN() || lab[2].isNaN()) {
+            println("ColorTFLite: Invalid Lab output for ($rInt,$gInt,$bInt)")
+            callback.invoke("lab_invalid", null)
             return
         }
 
         val inputVector = floatArrayOf(
-            (cam[0] / 100.0).toFloat(),
-            (cam[1] / 50.0).toFloat(),
-            (cam[2] / 50.0).toFloat()
+            (lab[0] / 100.0).toFloat(),
+            (lab[1] / 128.0).toFloat(),
+            (lab[2] / 128.0).toFloat()
         )
 
-        runInference(inputVector, cam, callback, interp)
+        runInference(inputVector, lab, callback, interp)
     }
 
     @ReactMethod
@@ -85,7 +83,7 @@ class ColorTFLiteModule(reactContext: ReactApplicationContext) : ReactContextBas
 
     private fun runInference(
         input: FloatArray,
-        cam16: DoubleArray?,
+        lab: DoubleArray?,
         callback: Callback,
         cachedInterpreter: Interpreter? = helper.interpreter
     ) {
@@ -98,7 +96,6 @@ class ColorTFLiteModule(reactContext: ReactApplicationContext) : ReactContextBas
         val outSize = if (labelCount > 0) labelCount else 12
         val output = Array(1) { FloatArray(outSize) }
 
-        println("ColorTFLite: Running inference with input=${input.joinToString()}")
         interp.run(arrayOf(input), output)
 
         val probs = output[0]
@@ -110,13 +107,11 @@ class ColorTFLiteModule(reactContext: ReactApplicationContext) : ReactContextBas
                 maxIdx = i
             }
         }
-
-        println("ColorTFLite: Prediction result - Index: $maxIdx, Score: $maxVal")
         val result: WritableMap = Arguments.createMap().apply {
             putInt("index", maxIdx)
             putDouble("score", maxVal.toDouble())
-            cam16?.let {
-                putArray("cam16", toWritableArray(it))
+            lab?.let {
+                putArray("lab", toWritableArray(it))
             }
         }
 
