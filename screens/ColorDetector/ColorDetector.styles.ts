@@ -117,6 +117,11 @@ export const styles = StyleSheet.create({
   whiteBalanceWarningText: { color: '#FFFFFF', fontSize: rf(13), fontWeight: '600', textAlign: 'center' },
   whiteBalanceToggle: { position: 'absolute', bottom: rf(12), left: rf(12), backgroundColor: 'rgba(0,0,0,0.6)', paddingVertical: rf(8), paddingHorizontal: rf(12), borderRadius: rf(6), flexDirection: 'row', alignItems: 'center', elevation: 10, zIndex: 10000 },
   whiteBalanceToggleText: { color: '#FFFFFF', fontSize: rf(12), fontWeight: '600', marginLeft: rf(6) },
+  whiteBalanceToggleIcon: { color: '#FFFFFF', fontSize: rf(14), fontWeight: '800', marginRight: rf(6) },
+  // When white balance is active (left box enabled) show a red "Disable" button
+  whiteBalanceToggleActive: { backgroundColor: '#D9534F' },
+  // When white balance is inactive show a green "Enable" button
+  whiteBalanceToggleInactive: { backgroundColor: '#28A745' },
   cameraErrorBanner: { position: 'absolute', top: rf(44), left: rf(12), right: rf(12), backgroundColor: 'rgba(255,0,0,0.9)', paddingVertical: rf(10), paddingHorizontal: rf(12), borderRadius: rf(8), elevation: 20, zIndex: 10001 },
   cameraErrorText: { color: '#FFF', fontSize: rf(13), fontWeight: '700', textAlign: 'center' },
 });

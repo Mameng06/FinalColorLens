@@ -2175,10 +2175,14 @@ const ColorDetector: React.FC<ColorDetectorProps> = ({ onBack, openSettings, voi
               {/* Toggle for left box */}
               {!freeze && !selectedImageUri && (
                 <TouchableOpacity 
-                  style={styles.whiteBalanceToggle}
+                  style={[
+                    styles.whiteBalanceToggle,
+                    leftBoxEnabled ? styles.whiteBalanceToggleActive : styles.whiteBalanceToggleInactive,
+                  ]}
                   onPress={() => setLeftBoxEnabled(!leftBoxEnabled)}
                   activeOpacity={0.7}
                 >
+                  <Text style={styles.whiteBalanceToggleIcon}>{leftBoxEnabled ? '✕' : '✓'}</Text>
                   <Text style={styles.whiteBalanceToggleText}>
                     {leftBoxEnabled ? 'Disable White Balance' : 'Enable White Balance'}
                   </Text>
