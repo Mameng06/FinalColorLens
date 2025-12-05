@@ -58,9 +58,6 @@ const AboutScreen: React.FC<AboutScreenProps> = ({ onBack, onDone }) => {
     <View style={styles.container}>
       <StatusBar barStyle="light-content" backgroundColor="#007FFF" />
       <View style={[styles.header, { paddingTop: (insets.top || 0) + 12 }]}>
-        <TouchableOpacity onPress={onBack} style={styles.backButton} hitSlop={{ top: 10, bottom: 10, left: 10, right: 10 }}>
-          <Image source={ICONS.ARROWicon} style={styles.backIconImage} />
-        </TouchableOpacity>
         <Text style={styles.headerTitle}>About ColorLens</Text>
       </View>
 
