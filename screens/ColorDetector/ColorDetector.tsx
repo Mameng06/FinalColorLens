@@ -1930,6 +1930,7 @@ const ColorDetector: React.FC<ColorDetectorProps> = ({ onBack, openSettings, voi
       </View>
       <TouchableWithoutFeedback onPress={onPreviewTap}>
         <View style={styles.cameraArea}>
+          {!processing && (
           <View style={styles.previewWrapper} onStartShouldSetResponder={() => true} onResponderRelease={(e) => {
             try { if (!freeze) return; const mapped = mapLocalPressToPreviewCoords(e, previewLayout); handleTapAt(mapped.relX, mapped.relY); } catch (_e) {}
           }}>
@@ -2199,10 +2200,11 @@ const ColorDetector: React.FC<ColorDetectorProps> = ({ onBack, openSettings, voi
                 </TouchableOpacity>
               )}
     </View>
-            {!freeze && (
+              {!freeze && (
               <Text style={styles.crosshairHint}>Aim the right box to the color you want to detect.</Text>
             )}
           </View>
+          )}
         </View>
       </TouchableWithoutFeedback>
       
@@ -2223,7 +2225,7 @@ const ColorDetector: React.FC<ColorDetectorProps> = ({ onBack, openSettings, voi
       )}
 
         {processing && (
-          <View style={styles.processingOverlay} pointerEvents="box-none">
+          <View style={styles.processingOverlay} pointerEvents="auto">
             <View style={styles.processingBox}>
               <ActivityIndicator size="large" color="#6A0DAF" />
               <Text style={styles.processingText}>Processing image…</Text>
