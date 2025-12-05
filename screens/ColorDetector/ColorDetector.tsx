@@ -1912,18 +1912,18 @@ const ColorDetector: React.FC<ColorDetectorProps> = ({ onBack, openSettings, voi
       <View style={styles.header}>
         <TouchableOpacity
           onPress={onBack}
-          style={[styles.backButton, cameraPermission !== 'authorized' && { opacity: 0.45 }]}
+          style={[styles.backButton, (cameraPermission !== 'authorized' || freeze) && { opacity: 0.45 }]}
           hitSlop={{ top: 10, left: 10, bottom: 10, right: 10 }}
-          disabled={cameraPermission !== 'authorized'}
+          disabled={cameraPermission !== 'authorized' || freeze}
         >
           <Image source={ICONS.ARROWicon} style={styles.backIconImage} />
         </TouchableOpacity>
         <View style={styles.headerSpacer} />
         <TouchableOpacity
           onPress={() => { openSettings(); }}
-          style={[styles.settingsButton, cameraPermission !== 'authorized' && { opacity: 0.45 }]}
+          style={[styles.settingsButton, (cameraPermission !== 'authorized' || freeze) && { opacity: 0.45 }]}
           hitSlop={{ top: 10, left: 10, bottom: 10, right: 10 }}
-          disabled={cameraPermission !== 'authorized'}
+          disabled={cameraPermission !== 'authorized' || freeze}
         >
           <SettingsIcon size={rf(32)} color="#000" />
         </TouchableOpacity>
@@ -2274,10 +2274,10 @@ const ColorDetector: React.FC<ColorDetectorProps> = ({ onBack, openSettings, voi
         
         <View style={styles.actionButtonsContainer}>
           <TouchableOpacity
-            style={[styles.uploadButton, cameraPermission !== 'authorized' && { opacity: 0.45 }]}
+            style={[styles.uploadButton, (cameraPermission !== 'authorized' || freeze) && { opacity: 0.45 }]}
             onPress={pickImage}
             activeOpacity={0.8}
-            disabled={cameraPermission !== 'authorized'}
+            disabled={cameraPermission !== 'authorized' || freeze}
           >
             <View style={styles.uploadButtonContent}>
               <Image source={ICONS.UploadIcon} style={styles.uploadIcon} />
