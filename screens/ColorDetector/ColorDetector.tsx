@@ -1910,11 +1910,21 @@ const ColorDetector: React.FC<ColorDetectorProps> = ({ onBack, openSettings, voi
   return (
     <View style={[styles.container, { paddingTop: insets.top || 0, paddingBottom: insets.bottom || 0 }]}> 
       <View style={styles.header}>
-        <TouchableOpacity onPress={onBack} style={styles.backButton} hitSlop={{ top: 10, left: 10, bottom: 10, right: 10 }}>
+        <TouchableOpacity
+          onPress={onBack}
+          style={[styles.backButton, cameraPermission !== 'authorized' && { opacity: 0.45 }]}
+          hitSlop={{ top: 10, left: 10, bottom: 10, right: 10 }}
+          disabled={cameraPermission !== 'authorized'}
+        >
           <Image source={ICONS.ARROWicon} style={styles.backIconImage} />
         </TouchableOpacity>
         <View style={styles.headerSpacer} />
-        <TouchableOpacity onPress={() => { openSettings(); }} style={styles.settingsButton} hitSlop={{ top: 10, left: 10, bottom: 10, right: 10 }}>
+        <TouchableOpacity
+          onPress={() => { openSettings(); }}
+          style={[styles.settingsButton, cameraPermission !== 'authorized' && { opacity: 0.45 }]}
+          hitSlop={{ top: 10, left: 10, bottom: 10, right: 10 }}
+          disabled={cameraPermission !== 'authorized'}
+        >
           <SettingsIcon size={rf(32)} color="#000" />
         </TouchableOpacity>
       </View>
@@ -2173,7 +2183,7 @@ const ColorDetector: React.FC<ColorDetectorProps> = ({ onBack, openSettings, voi
               )}
               
               {/* Toggle for left box */}
-              {!freeze && !selectedImageUri && (
+              {!freeze && !selectedImageUri && cameraPermission === 'authorized' && (
                 <TouchableOpacity 
                   style={[
                     styles.whiteBalanceToggle,
@@ -2190,7 +2200,7 @@ const ColorDetector: React.FC<ColorDetectorProps> = ({ onBack, openSettings, voi
               )}
     </View>
             {!freeze && (
-              <Text style={styles.crosshairHint}>Aim the box to the color you want to detect.</Text>
+              <Text style={styles.crosshairHint}>Aim the right box to the color you want to detect.</Text>
             )}
           </View>
         </View>
@@ -2261,13 +2271,23 @@ const ColorDetector: React.FC<ColorDetectorProps> = ({ onBack, openSettings, voi
         </View>
         
         <View style={styles.actionButtonsContainer}>
-          <TouchableOpacity style={styles.uploadButton} onPress={pickImage} activeOpacity={0.8}>
+          <TouchableOpacity
+            style={[styles.uploadButton, cameraPermission !== 'authorized' && { opacity: 0.45 }]}
+            onPress={pickImage}
+            activeOpacity={0.8}
+            disabled={cameraPermission !== 'authorized'}
+          >
             <View style={styles.uploadButtonContent}>
               <Image source={ICONS.UploadIcon} style={styles.uploadIcon} />
               <Text style={styles.uploadButtonText}>Upload Image</Text>
             </View>
           </TouchableOpacity>
-          <TouchableOpacity style={freeze ? styles.unfreezeButton : styles.freezeButton} onPress={toggleFreeze} activeOpacity={0.8}>
+          <TouchableOpacity
+            style={[freeze ? styles.unfreezeButton : styles.freezeButton, cameraPermission !== 'authorized' && { opacity: 0.45 }]}
+            onPress={toggleFreeze}
+            activeOpacity={0.8}
+            disabled={cameraPermission !== 'authorized'}
+          >
             <Text style={styles.freezeButtonText}>{freeze ? 'Unfreeze' : 'Freeze Frame'}</Text>
           </TouchableOpacity>
         </View>
