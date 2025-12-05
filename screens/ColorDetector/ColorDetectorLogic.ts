@@ -419,7 +419,7 @@ export const getWhiteSurfaceStatus = (r: number, g: number, b: number, useCalibr
   // Check if too dark first
   const luminance = 0.299 * r + 0.587 * g + 0.114 * b;
   if (luminance < 100) {
-    return { status: 'too_dark', message: 'Please aim the left part of the camera view at an even white surface' };
+    return { status: 'too_dark', message: 'the left box should be white' };
   }
   
   // If calibration is available and enabled, use adaptive threshold
@@ -430,7 +430,7 @@ export const getWhiteSurfaceStatus = (r: number, g: number, b: number, useCalibr
     // If calibration exists but doesn't match, still try default test
   }
   if (!isWhiteSurface(r, g, b)) {
-    return { status: 'not_white', message: 'The left side should be white' };
+    return { status: 'not_white', message: 'the left box should be white' };
   }
   return { status: 'ok', message: '' };
 };

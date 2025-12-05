@@ -247,8 +247,10 @@ export async function inferColorFromRGB(rgb: { r: number; g: number; b: number }
 
     // Hue-based family hints (helps differentiate yellow vs green, etc.)
     const hueInfo = rgbToHueInfo(pre.r, pre.g, pre.b);
-    const isYellowHue = hueInfo.s >= 0.15 && hueInfo.h >= 45 && hueInfo.h <= 80 && hueInfo.l >= 0.3;
-    const isLimeHue = hueInfo.s >= 0.2 && hueInfo.h > 80 && hueInfo.h <= 105;
+    // Narrower yellow band; require higher saturation and moderate lightness
+    const isYellowHue = hueInfo.s >= 0.28 && hueInfo.h >= 52 && hueInfo.h <= 68 && hueInfo.l >= 0.35;
+    // Lime/greenish band slightly broader to catch olive/lime tones
+    const isLimeHue = hueInfo.s >= 0.20 && hueInfo.h > 68 && hueInfo.h <= 110;
     
     // If model returns empty, fall back to matcher family immediately
     let chosenFamily = modelFamily || datasetFamily || matcherResult.closest_match.name;
@@ -329,15 +331,19 @@ export async function inferColorFromRGB(rgb: { r: number; g: number; b: number }
       }
     }
     
-    // If hue clearly indicates yellow but the dataset/model say green, override to Yellow
+    // Balance between yellow and green: require strong evidence to flip green->yellow
     const familyLooksGreen = /green/i.test(chosenFamily) && !/yellow/i.test(chosenFamily);
     const nameSuggestsYellow = /(yellow|gold)/i.test(matcherResult.closest_match.name || '');
     const familySuggestsYellow = /(yellow|gold)/i.test(matcherResult.closest_match.family || '');
-    if (!isWhite && (nameSuggestsYellow || familySuggestsYellow || isYellowHue) && familyLooksGreen) {
-      chosenFamily = 'Yellow';
-    } else if (!isWhite && isLimeHue && /yellow/i.test(chosenFamily) && !/green/i.test(chosenFamily)) {
-      // Lime hues are closer to green than yellow
-      chosenFamily = 'Green';
+    if (!isWhite) {
+      const yellowSignals = (isYellowHue ? 1 : 0) + (nameSuggestsYellow ? 1 : 0) + (familySuggestsYellow ? 1 : 0);
+      if (yellowSignals >= 2 && isYellowHue && familyLooksGreen) {
+        chosenFamily = 'Yellow';
+      }
+      // If hue is lime/greenish and result is Yellow, prefer Green
+      if (isLimeHue && /yellow/i.test(chosenFamily) && !/green/i.test(chosenFamily)) {
+        chosenFamily = 'Green';
+      }
     }
 
     // If families disagree and the model thinks it's gray/neutral but matcher finds a vivid color,

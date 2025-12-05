@@ -45,7 +45,7 @@ const SettingsIcon: React.FC<{ size?: number; color?: string }> = ({ size = 32, 
   );
 };
 import { styles, REFERENCE_BOX_DEFAULT_SIZE, REFERENCE_BOX_MIN_SIZE, REFERENCE_BOX_MAX_SIZE, PIXELS_PER_INCH, rf } from './ColorDetector.styles';
-import { getFallbackColor, getJpegUtils, getJpegOrientation, decodeJpegAndSampleCenter as _decodeCenter, decodeJpegAndSampleAt as _decodeAt, hexToRgb, rgbToHex, processWithIndicator, mapPressToPreviewCoords, mapLocalPressToPreviewCoords, isWhiteSurface, getWhiteSurfaceStatus, medianRgb, computeSimpleWhiteGains, setCalibratedGains, getCalibratedGains, applySimpleWhiteBalanceCorrection, fractionWhiteInSamples } from './ColorDetectorLogic';
+import { getFallbackColor, getJpegUtils, getJpegOrientation, decodeJpegAndSampleCenter as _decodeCenter, decodeJpegAndSampleAt as _decodeAt, hexToRgb, rgbToHex, processWithIndicator, mapPressToPreviewCoords, mapLocalPressToPreviewCoords, isWhiteSurface, getWhiteSurfaceStatus, medianRgb, computeSimpleWhiteGains, setCalibratedGains, getCalibratedGains, clearCalibratedGains, applySimpleWhiteBalanceCorrection, fractionWhiteInSamples } from './ColorDetectorLogic';
 import { findClosestColor } from '../../services/ColorMatcher';
 import { findClosestColorAsync } from '../../services/ColorMatcherWorker';
 import { inferColorFromRGB } from '../../services/ColorDetectorInference';
@@ -101,6 +101,7 @@ const ColorDetector: React.FC<ColorDetectorProps> = ({ onBack, openSettings, voi
   const [imageScaledSize, setImageScaledSize] = useState<{w:number,h:number} | null>(null);
   
   const suppressSpeechRef = useRef<boolean>(false);
+  const warningSuppressedRef = useRef<boolean>(false);
   const freezeSpeakTimersRef = useRef<number[]>([]);
   const lastSpokenRef = useRef<number>(0);
   // Continuous voice output every 1.2 seconds during live detection
@@ -156,6 +157,24 @@ const ColorDetector: React.FC<ColorDetectorProps> = ({ onBack, openSettings, voi
       g: Math.round(rgb.g),
       b: Math.round(rgb.b),
     };
+  };
+
+  // Use this wrapper to prevent accepting live detections when left-box white reference is enabled but invalid.
+  const maybeSetLiveDetected = (val: {family:string,hex:string,realName:string,confidence?:number} | null) => {
+    try {
+      // Always allow explicit clears
+      if (val === null) {
+        setLiveDetected(null);
+        return;
+      }
+      // If left-box white balance is enabled but not OK, skip accepting detection
+      if (leftBoxEnabledRef.current && whiteBalanceStatusRef.current && whiteBalanceStatusRef.current.status !== 'ok') {
+        return;
+      }
+      setLiveDetected(val);
+    } catch (_e) {
+      try { setLiveDetected(val); } catch (__e) {}
+    }
   };
 
   const rgbArrayToObject = (values?: number[] | null) => {
@@ -342,8 +361,8 @@ const ColorDetector: React.FC<ColorDetectorProps> = ({ onBack, openSettings, voi
 
   const safeWarningSpeak = (text: string) => {
     try {
-      // Never speak warnings if left box is disabled
-      if (!leftBoxEnabled || suppressSpeechRef.current) return false;
+      // Never speak warnings if left box is disabled or warnings are suppressed
+      if (!leftBoxEnabledRef.current || warningSuppressedRef.current) return false;
       const now = Date.now();
       if (now - lastWarningSpokenRef.current < WARNING_SPEAK_COOLDOWN) return false;
       const res = speak(text);
@@ -362,25 +381,29 @@ const ColorDetector: React.FC<ColorDetectorProps> = ({ onBack, openSettings, voi
   const updateWhiteBalanceStatus = (r: number, g: number, b: number) => {
     // If left box is disabled, NEVER set any warning or speak anything
     try {
-      if (!leftBoxEnabled) {
-        // Aggressively clear status and suppress all speech
+      if (!leftBoxEnabledRef.current) {
+        // Aggressively clear status and suppress warning speech only
         setWhiteBalanceStatusSafe({ status: 'ok', message: '' });
-        suppressSpeechRef.current = true;
+        warningSuppressedRef.current = true;
         return;
       }
       const status = getWhiteSurfaceStatus(r, g, b, Boolean(getCalibratedGains()));
       setWhiteBalanceStatusSafe(status);
+      // If left-box is enabled and status is not OK, clear any existing live detection
+      if (status.status !== 'ok') {
+        try { maybeSetLiveDetected(null); } catch (_e) {}
+      }
       // Speak warning only when left-box is enabled and voice is enabled
       if (status.status !== 'ok' && voiceEnabled) {
         // Allow warning speech only when left box is explicitly enabled
-        suppressSpeechRef.current = false;
+        warningSuppressedRef.current = false;
         safeWarningSpeak(status.message);
       }
     } catch (_e) {
       // On error, do not surface a warning if left box is disabled
       if (!leftBoxEnabled) {
         setWhiteBalanceStatusSafe({ status: 'ok', message: '' });
-        suppressSpeechRef.current = true;
+        warningSuppressedRef.current = true;
       }
     }
   };
@@ -424,18 +447,20 @@ const ColorDetector: React.FC<ColorDetectorProps> = ({ onBack, openSettings, voi
     try {
       leftBoxEnabledRef.current = leftBoxEnabled; // Keep ref in sync
       if (!leftBoxEnabled) {
-        // Aggressively suppress all speech immediately at the TTS level
-        setSuppressed(true);
-        suppressSpeechRef.current = true;
+        // When left-box is disabled we should NOT globally mute the TTS engine;
+        // only suppress *warning* utterances. However, a previously queued
+        // warning speak may still fire — cancel it and re-enable the engine so
+        // detection speech still works.
         try { stopTts(); } catch (_e) {}
-        // Multiple attempts to stop TTS to ensure it's silenced
-        setTimeout(() => { try { stopTts(); } catch (_e) {} }, 50);
-        setTimeout(() => { try { stopTts(); } catch (_e) {} }, 150);
+        try { setSuppressed(false); } catch (_e) {}
+        warningSuppressedRef.current = true; // prevents future warning speech
         setWhiteBalanceStatusSafe({ status: 'ok', message: '' });
         clearCalibratedGains();
       } else {
-        // Re-enable TTS when left box is turned back on
-        setSuppressed(false);
+        // Re-enable warning speech when left box is turned back on
+        warningSuppressedRef.current = false;
+        // Ensure TTS is available for warnings
+        try { setSuppressed(false); } catch (_e) {}
       }
     } catch (_e) {}
   }, [leftBoxEnabled]);
@@ -499,7 +524,7 @@ const ColorDetector: React.FC<ColorDetectorProps> = ({ onBack, openSettings, voi
               
               // Sample from left box (for white balance calibration)
               let leftBoxSample: {r:number;g:number;b:number} | null = null;
-              if (leftBoxEnabled) {
+              if (leftBoxEnabledRef.current) {
                 const leftSamples: Array<{r:number;g:number;b:number}> = [];
                 const gridRadius = Math.max(2, Math.floor(boxHalfSize * 0.25));
                 const steps = 1;
@@ -590,8 +615,8 @@ const ColorDetector: React.FC<ColorDetectorProps> = ({ onBack, openSettings, voi
                     const decoded = _jpegjs.decode(buffer, { useTArray: true });
                     if (decoded && decoded.width && decoded.data) {
                       const w = decoded.width; const h = decoded.height; const data = decoded.data;
-                      const cx = Math.floor((centerBoxRelX / pw) * w);
-                      const cy = Math.floor((centerBoxRelY / ph) * h);
+                      const cx = Math.floor((rightBoxRelX / pw) * w);
+                      const cy = Math.floor((rightBoxRelY / ph) * h);
                       const cRadius = Math.max(1, Math.floor(Math.min(w, h) * 0.02));
                       const samples: Array<{r:number;g:number;b:number}> = [];
                       for (let yy = Math.max(0, cy - cRadius); yy <= Math.min(h-1, cy + cRadius); yy++) {
@@ -652,6 +677,11 @@ const ColorDetector: React.FC<ColorDetectorProps> = ({ onBack, openSettings, voi
                     };
                     try { setDebugRightMatch(stabilized.realName || stabilized.family || inferred.hex || null); } catch (_e) {}
                     
+                    // If left-box white balance is enabled but not OK, skip accepting detection
+                    if (leftBoxEnabledRef.current && whiteBalanceStatusRef.current && whiteBalanceStatusRef.current.status !== 'ok') {
+                      processingFrameRef.current = false;
+                      return false;
+                    }
                     // Store detected RGB for comparison view
                     setDetectedRgb(sampleForDisplay);
                     
@@ -662,7 +692,7 @@ const ColorDetector: React.FC<ColorDetectorProps> = ({ onBack, openSettings, voi
                       detectionHistoryRef.current = [];
                     }
                     
-                    if (!freeze) setLiveDetected(live);
+                    if (!freeze) maybeSetLiveDetected(live);
                     processingFrameRef.current = false;
                     return true;
                   }
@@ -689,6 +719,11 @@ const ColorDetector: React.FC<ColorDetectorProps> = ({ onBack, openSettings, voi
                       };
                       try { setDebugRightMatch(stabilized.realName || stabilized.family || cm.hex || null); } catch (_e) {}
                       
+                      // If left-box white balance is enabled but not OK, skip accepting detection
+                      if (leftBoxEnabledRef.current && whiteBalanceStatusRef.current && whiteBalanceStatusRef.current.status !== 'ok') {
+                        processingFrameRef.current = false;
+                        return false;
+                      }
                       // Store detected RGB for comparison view
                       setDetectedRgb(sampleForDisplay);
                       
@@ -699,7 +734,7 @@ const ColorDetector: React.FC<ColorDetectorProps> = ({ onBack, openSettings, voi
                         detectionHistoryRef.current = [];
                       }
                       
-                      if (!freeze) setLiveDetected(live);
+                      if (!freeze) maybeSetLiveDetected(live);
                       processingFrameRef.current = false;
                       return true;
                     }
@@ -828,7 +863,7 @@ const ColorDetector: React.FC<ColorDetectorProps> = ({ onBack, openSettings, voi
                 confidence: inferred.confidence
               }, correctedSampled);
               
-              if (stabilized) {
+                if (stabilized) {
                 const live = { 
                   family: stabilized.family, 
                   hex: inferred.hex, 
@@ -842,8 +877,15 @@ const ColorDetector: React.FC<ColorDetectorProps> = ({ onBack, openSettings, voi
                   // Also clear detection history on significant color change (e.g., brown to white)
                   detectionHistoryRef.current = [];
                 }
-                
-                if (!freeze) setLiveDetected(live);
+
+                if (!freeze) {
+                  // If left-box white balance is enabled but not OK, skip accepting detection
+                  if (leftBoxEnabledRef.current && whiteBalanceStatusRef.current && whiteBalanceStatusRef.current.status !== 'ok') {
+                    processingFrameRef.current = false;
+                    return false;
+                  }
+                  maybeSetLiveDetected(live);
+                }
                 processingFrameRef.current = false;
                 return true;
               }
@@ -1006,10 +1048,10 @@ const ColorDetector: React.FC<ColorDetectorProps> = ({ onBack, openSettings, voi
           // Schedule a short debounce clear so intermittent misses don't erase the last known detection immediately
           try {
             if (debounceClearRef.current) { clearTimeout(debounceClearRef.current as any); debounceClearRef.current = null; }
-            debounceClearRef.current = setTimeout(() => { try { setLiveDetected(null); } catch (_e) {} debounceClearRef.current = null; }, 800) as unknown as number;
-          } catch (_e) { setLiveDetected(null); }
+            debounceClearRef.current = setTimeout(() => { try { maybeSetLiveDetected(null); } catch (_e) {} debounceClearRef.current = null; }, 800) as unknown as number;
+          } catch (_e) { maybeSetLiveDetected(null); }
         }).catch(() => {
-          setLiveDetected(null);
+          maybeSetLiveDetected(null);
         });
       }
     }, 200);
@@ -2176,21 +2218,7 @@ const ColorDetector: React.FC<ColorDetectorProps> = ({ onBack, openSettings, voi
         )}
 
         <View style={styles.infoArea}>
-          {/* TEMPORARY: Comparison view - Detected vs Matched */}
-          {detectedRgb && displayDetected && (
-            <View style={styles.comparisonContainer}>
-              <View style={styles.comparisonItem}>
-                <Text style={styles.comparisonLabel}>Your Color</Text>
-                <View style={[styles.comparisonSwatch, { backgroundColor: rgbToHex(detectedRgb.r, detectedRgb.g, detectedRgb.b) }]} />
-                <Text style={styles.comparisonHex}>{rgbToHex(detectedRgb.r, detectedRgb.g, detectedRgb.b)}</Text>
-              </View>
-              <View style={styles.comparisonItem}>
-                <Text style={styles.comparisonLabel}>Matched</Text>
-                <View style={[styles.comparisonSwatch, { backgroundColor: displayDetected.hex }]} />
-                <Text style={styles.comparisonHex}>{displayDetected.hex}</Text>
-              </View>
-            </View>
-          )}
+          {/* Comparison UI removed (debugging only) */}
           
           <View style={styles.colorInfoContainer}>
             {/* Color swatch on top */}
