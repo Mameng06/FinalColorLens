@@ -54,13 +54,62 @@ export const styles = StyleSheet.create({
     overflow: 'hidden',
     backgroundColor: '#F5F5F5',
   },
+  videoThumbnailContainer: {
+    flex: 1,
+    justifyContent: 'center',
+    alignItems: 'center',
+    backgroundColor: '#000',
+  },
+  videoThumbnail: {
+    width: '100%',
+    height: '100%',
+  },
+  playButtonOverlay: {
+    position: 'absolute',
+    width: '100%',
+    height: '100%',
+    justifyContent: 'center',
+    alignItems: 'center',
+    backgroundColor: 'rgba(0,0,0,0.3)',
+  },
+  playButton: {
+    width: 64,
+    height: 64,
+    borderRadius: 32,
+    backgroundColor: 'rgba(255,0,0,0.9)',
+    justifyContent: 'center',
+    alignItems: 'center',
+  },
+  playButtonText: {
+    fontSize: 28,
+    color: '#fff',
+    marginLeft: 4,
+  },
   webView: {
     flex: 1,
   },
   webViewFallback: { justifyContent: 'center', alignItems: 'center' },
+  openExternalContainer: {
+    position: 'absolute',
+    left: 0,
+    right: 0,
+    bottom: 12,
+    alignItems: 'center',
+  },
+  openExternalButton: {
+    backgroundColor: '#FF0000',
+    paddingHorizontal: 16,
+    paddingVertical: 8,
+    borderRadius: 8,
+  },
+  openExternalText: {
+    color: '#fff',
+    fontWeight: '600',
+  },
   infoContainer: {
     paddingHorizontal: 20,
     paddingVertical: 16,
+    flex: 1,
   },
   infoTitle: {
     fontSize: 20,
@@ -72,5 +121,19 @@ export const styles = StyleSheet.create({
     fontSize: 14,
     color: '#666666',
     lineHeight: 20,
+    marginBottom: 16,
+  },
+  watchOnYouTubeButton: {
+    backgroundColor: '#FF0000',
+    paddingHorizontal: 16,
+    paddingVertical: 12,
+    borderRadius: 8,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  watchOnYouTubeText: {
+    color: '#fff',
+    fontWeight: 'bold',
+    fontSize: 16,
   },
 });

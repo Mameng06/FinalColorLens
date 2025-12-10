@@ -91,7 +91,7 @@ export const styles = StyleSheet.create({
   referenceBoxContainer: { position: 'absolute', bottom: rf(12), left: 0, right: 0, flexDirection: 'row', justifyContent: 'center', alignItems: 'flex-end', elevation: 20 },
   referenceBoxWrapper: { alignItems: 'center' },
   referenceBox: { borderWidth: 2, borderColor: '#FFF', backgroundColor: 'rgba(255,255,255,0.1)', position: 'relative' },
-  referenceBoxLabel: { fontSize: rf(12), color: '#fff', fontWeight: '600', marginTop: rf(6), textAlign: 'center', maxWidth: rf(80) },
+  referenceBoxLabel: { fontSize: rf(11), color: '#FFFFFF', fontWeight: '700', marginTop: rf(8), textAlign: 'center', maxWidth: rf(160), lineHeight: rf(18), textShadowColor: '#000', textShadowOffset: { width: 0, height: 0 }, textShadowRadius: 1 },
   referenceBoxDisabled: { opacity: 0.4 },
   referenceBoxControls: { flexDirection: 'row', marginTop: rf(8), gap: rf(8) },
   sizeControl: { flexDirection: 'row', alignItems: 'center', backgroundColor: 'rgba(255,255,255,0.2)', borderRadius: 6, paddingHorizontal: rf(6), paddingVertical: rf(4) },

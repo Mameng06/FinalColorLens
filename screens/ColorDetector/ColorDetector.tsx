@@ -2141,29 +2141,21 @@ const ColorDetector: React.FC<ColorDetectorProps> = ({ onBack, openSettings, voi
                         {/* Left box (rendered only when white balance is enabled) */}
                         {leftBoxEnabled && (
                           <View style={[
-                            styles.whiteBalanceBox,
-                            {
-                              left: leftBoxX,
-                              top: leftBoxY,
-                              width: boxSizePixels,
-                              height: boxSizePixels,
-                            }
+                            styles.referenceBoxWrapper,
+                            { position: 'absolute', left: leftBoxX + (boxSizePixels/2) - rf(80), top: leftBoxY, width: rf(160), alignItems: 'center' }
                           ]}>
-                            <Text style={styles.whiteBalanceBoxLabel}>Place white paper here</Text>
+                            <View style={[styles.whiteBalanceBox, { position: 'relative', width: boxSizePixels, height: boxSizePixels, alignSelf: 'center' }]} />
+                            <Text style={styles.referenceBoxLabel} numberOfLines={2} ellipsizeMode="tail">place white paper here</Text>
                           </View>
                         )}
-                        
+
                         {/* Right box */}
                         <View style={[
-                          styles.whiteBalanceBox,
-                          {
-                            left: rightBoxX,
-                            top: rightBoxY,
-                            width: boxSizePixels,
-                            height: boxSizePixels,
-                          }
+                          styles.referenceBoxWrapper,
+                          { position: 'absolute', left: rightBoxX + (boxSizePixels/2) - rf(80), top: rightBoxY, width: rf(160), alignItems: 'center' }
                         ]}>
-                          <Text style={styles.whiteBalanceBoxLabel}>Put color to measure here</Text>
+                          <View style={[styles.whiteBalanceBox, { position: 'relative', width: boxSizePixels, height: boxSizePixels, alignSelf: 'center' }]} />
+                          <Text style={styles.referenceBoxLabel} numberOfLines={2} ellipsizeMode="tail">put color to measure here</Text>
                         </View>
                       </>
                     );
@@ -2176,11 +2168,6 @@ const ColorDetector: React.FC<ColorDetectorProps> = ({ onBack, openSettings, voi
                 <View style={styles.whiteBalanceWarning}>
                   <Text style={styles.whiteBalanceWarningText}>{whiteBalanceStatus.message}</Text>
                 </View>
-              )}
-              {cameraError && (
-                <TouchableOpacity style={styles.cameraErrorBanner} activeOpacity={0.8} onPress={() => setCameraError(null)}>
-                  <Text style={styles.cameraErrorText}>{cameraError}</Text>
-                </TouchableOpacity>
               )}
               
               {/* Toggle for left box */}
