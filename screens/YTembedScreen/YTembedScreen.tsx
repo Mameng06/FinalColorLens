@@ -128,12 +128,6 @@ const YTembedScreen: React.FC<YTembedScreenProps> = ({ onBack }) => {
         <Text style={styles.infoDescription}>
           Watch this short guide to learn how to detect colors with ColorLens, interpret family and real name results, and customize the app using the Settings screen. The video demonstrates live detection, freezing and sampling, and how to enable or disable voice prompts.
         </Text>
-        <TouchableOpacity
-          style={styles.watchOnYouTubeButton}
-          onPress={handlePlayVideo}
-        >
-          <Text style={styles.watchOnYouTubeText}>Watch on YouTube</Text>
-        </TouchableOpacity>
       </View>
     </View>
   );
