@@ -11,6 +11,10 @@ try {
 let captureRef: any = null;
 try { captureRef = require('react-native-view-shot').captureRef; } catch (_e) { captureRef = null; }
 import { ICONS } from '../../Images';
+import Swatch from '../Components/PreviewBox/PreviewBox';
+import FreezeBtn from '../Components/FreezeBtn/FreezeBtn';
+import AdjustBtn from '../Components/AdjustBtn/AdjustBtn';
+import UploadImgBtn from '../Components/UploadImgBtn/UploadImgBtn';
 
 // Settings Icon Component using SVG path
 let Svg: any = null;
@@ -1415,77 +1419,64 @@ const ColorDetector: React.FC<ColorDetectorProps> = ({ onBack, openSettings, voi
     } catch (err) {}
   };
 
-  const pickImage = async () => {
+  const handleImagePicked = async (uri: string) => {
     try {
       try { suppressSpeechRef.current = true; } catch (_e) {}
-      let ImagePicker: any = null;
-      try { ImagePicker = require('react-native-image-picker'); } catch (err) { ImagePicker = null; }
-      if (!ImagePicker) return;
+      try { Image.getSize(uri, (w, h) => { setImageNaturalSize({ w, h }); }, (_err) => {}); } catch (_err) {}
+      setSelectedImageUri(uri);
+      try { setFreeze(true); freezeRef.current = true; } catch (_e) {}
+      frozenImageUriRef.current = null;
 
-      ImagePicker.launchImageLibrary({ mediaType: 'photo' }, async (response: any) => {
+      const doProcessing = async () => {
+        let selectedSample: any = null;
         try {
-          if (!response) return;
-          if (response.didCancel) return;
-          const uri = (response.assets && response.assets[0] && response.assets[0].uri) || response.uri || null;
-          if (!uri) return;
-          try { Image.getSize(uri, (w, h) => { setImageNaturalSize({ w, h }); }, (_err) => {}); } catch (_err) {}
-          setSelectedImageUri(uri);
-          try { setFreeze(true); freezeRef.current = true; } catch (_e) {}
-          frozenImageUriRef.current = null;
-
-          const doProcessing = async () => {
-            let selectedSample: any = null;
-            try {
-              try { await ensurePreviewMeasured(); } catch (_e) {}
-              const centerX = (previewLayout.current.width || 0) / 2;
-              const centerY = (previewLayout.current.height || 0) / 2;
-              let res: any = null;
-              try { res = await sampleUploadedImageAt(centerX, centerY); } catch (_e) { res = null; }
-              if (res && !(res as any).offImage) {
-                selectedSample = res;
-                applyManualSelection(res, res?.sourceRgb || null, { speak: true });
-                setFreeze(true);
-              } else {
-                if (uri && (uri as string).startsWith('file://')) {
-                  try {
-                    const RNFS = require('react-native-fs');
-                    const base64 = await RNFS.readFile((uri as string).replace('file://',''), 'base64');
-                    if (base64) {
-                      const centerSample = _decodeCenter(base64);
-                      if (centerSample) {
-                        const match = await findClosestColorAsync([centerSample.r, centerSample.g, centerSample.b], 3).catch(() => null);
-                        if (match) {
-                          const c = { family: match.closest_match.family || match.closest_match.name, hex: match.closest_match.hex, realName: match.closest_match.name };
-                          selectedSample = c;
-                          applyManualSelection(c, centerSample, { speak: true });
-                          setFreeze(true);
-                        }
-                      }
+          try { await ensurePreviewMeasured(); } catch (_e) {}
+          const centerX = (previewLayout.current.width || 0) / 2;
+          const centerY = (previewLayout.current.height || 0) / 2;
+          let res: any = null;
+          try { res = await sampleUploadedImageAt(centerX, centerY); } catch (_e) { res = null; }
+          if (res && !(res as any).offImage) {
+            selectedSample = res;
+            applyManualSelection(res, res?.sourceRgb || null, { speak: true });
+            setFreeze(true);
+          } else {
+            if (uri && (uri as string).startsWith('file://')) {
+              try {
+                const RNFS = require('react-native-fs');
+                const base64 = await RNFS.readFile((uri as string).replace('file://',''), 'base64');
+                if (base64) {
+                  const centerSample = _decodeCenter(base64);
+                  if (centerSample) {
+                    const match = await findClosestColorAsync([centerSample.r, centerSample.g, centerSample.b], 3).catch(() => null);
+                    if (match) {
+                      const c = { family: match.closest_match.family || match.closest_match.name, hex: match.closest_match.hex, realName: match.closest_match.name };
+                      selectedSample = c;
+                      applyManualSelection(c, centerSample, { speak: true });
+                      setFreeze(true);
                     }
-                  } catch (_e) {}
+                  }
                 }
+              } catch (_e) {}
+            }
 
-                if (!selectedSample) {
-                  clearManualSelection();
-                  selectedSample = null;
-                }
-              }
-            } catch (err) {
+            if (!selectedSample) {
               clearManualSelection();
               selectedSample = null;
             }
-
-          };
-          try {
-            await processWithIndicator(setProcessing, doProcessing);
-          } catch (_e) {
-            await doProcessing();
           }
-        } catch (innerErr) {
+        } catch (err) {
+          clearManualSelection();
+          selectedSample = null;
         }
-        try { setTimeout(() => { try { suppressSpeechRef.current = false; } catch (_e) {} }, 300); } catch (_e) {}
-      });
-    } catch (err) {
+      };
+
+      try {
+        await processWithIndicator(setProcessing, doProcessing);
+      } catch (_e) {
+        await doProcessing();
+      }
+    } finally {
+      try { setTimeout(() => { try { suppressSpeechRef.current = false; } catch (_e) {} }, 300); } catch (_e) {}
     }
   };
   useEffect(() => { panResponder.current = PanResponder.create({ onStartShouldSetPanResponder: () => adjusting, onMoveShouldSetPanResponder: () => adjusting, onPanResponderGrant: () => { try { pan.setOffset({ x: (pan.x as any).__getValue ? (pan.x as any).__getValue() : 0, y: (pan.y as any).__getValue ? (pan.y as any).__getValue() : 0 }); } catch (_e) {} pan.setValue({ x: 0, y: 0 }); }, onPanResponderMove: Animated.event([null, { dx: pan.x, dy: pan.y }], { useNativeDriver: false }), onPanResponderRelease: () => { pan.flattenOffset(); clampPanToBounds(); }, onPanResponderTerminate: () => { pan.flattenOffset(); clampPanToBounds(); } }); }, [adjusting, imageScaledSize, previewSize]);
@@ -2195,21 +2186,7 @@ const ColorDetector: React.FC<ColorDetectorProps> = ({ onBack, openSettings, voi
         </View>
       </TouchableWithoutFeedback>
       
-      {selectedImageUri && (
-        <View style={styles.adjustArea} pointerEvents="box-none">
-          <TouchableOpacity style={styles.adjustButton} onPress={onAdjustToggle} activeOpacity={0.85}>
-            <View style={styles.adjustButtonContent}>
-              <Image source={ICONS.HANDicon} style={styles.adjustIcon} />
-              <Text style={styles.adjustText}>{adjusting ? 'Done' : 'Adjust Image'}</Text>
-            </View>
-          </TouchableOpacity>
-          {adjusting && (
-            <View style={styles.adjustHelp}>
-              <Text style={styles.adjustHelpText}>Drag the image to position it so the area you want to sample is visible under the crosshair. Tap done when finished.</Text>
-            </View>
-          )}
-        </View>
-      )}
+      <AdjustBtn visible={!!selectedImageUri} adjusting={adjusting} onToggle={onAdjustToggle} />
 
         {processing && (
           <View style={styles.processingOverlay} pointerEvents="auto">
@@ -2225,9 +2202,9 @@ const ColorDetector: React.FC<ColorDetectorProps> = ({ onBack, openSettings, voi
           
           <View style={styles.colorInfoContainer}>
             {/* Color swatch on top */}
-            <View style={styles.colorSwatchContainer}>
-              <View style={[styles.colorSwatch, { backgroundColor: displayDetected?.hex || '#090807' }]} />
-            </View>
+            <Swatch
+              color={displayDetected?.hex || '#090807'}
+            />
             
             {/* Text info below swatch */}
             <View style={styles.colorInfoText}>
@@ -2260,25 +2237,16 @@ const ColorDetector: React.FC<ColorDetectorProps> = ({ onBack, openSettings, voi
         </View>
         
         <View style={styles.actionButtonsContainer}>
-          <TouchableOpacity
-            style={[styles.uploadButton, (cameraPermission !== 'authorized' || freeze) && { opacity: 0.45 }]}
-            onPress={pickImage}
-            activeOpacity={0.8}
+          <UploadImgBtn
             disabled={cameraPermission !== 'authorized' || freeze}
-          >
-            <View style={styles.uploadButtonContent}>
-              <Image source={ICONS.UploadIcon} style={styles.uploadIcon} />
-              <Text style={styles.uploadButtonText}>Upload Image</Text>
-            </View>
-          </TouchableOpacity>
-          <TouchableOpacity
-            style={[freeze ? styles.unfreezeButton : styles.freezeButton, cameraPermission !== 'authorized' && { opacity: 0.45 }]}
-            onPress={toggleFreeze}
-            activeOpacity={0.8}
+            onPicked={handleImagePicked}
+          />
+          <FreezeBtn
+            freeze={freeze}
+            onToggle={toggleFreeze}
             disabled={cameraPermission !== 'authorized'}
-          >
-            <Text style={styles.freezeButtonText}>{freeze ? 'Unfreeze' : 'Freeze Frame'}</Text>
-          </TouchableOpacity>
+            style={cameraPermission !== 'authorized' ? { opacity: 0.45 } : undefined}
+          />
         </View>
     </View>
   );

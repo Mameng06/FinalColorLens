@@ -1,4 +1,0 @@
-patched: switched to direct YouTube embed URL in WebView (enablejsapi=1&origin=https://www.youtube.com&playsinline=1)
-Why: quick diagnostic to see if using the published embed URL (instead of inline HTML) removes the 153 error.
-Next: rebuild, reproduce, capture player error code and logcat.
-If still 153: try updating Android System WebView and testing on another device/emulator.
