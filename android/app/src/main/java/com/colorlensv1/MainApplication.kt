@@ -16,25 +16,37 @@ class MainApplication : Application(), ReactApplication {
 
   override val reactNativeHost: ReactNativeHost =
       object : DefaultReactNativeHost(this) {
-        override fun getPackages(): List<ReactPackage> =
-            PackageList(this).packages.apply {
-              // Packages that cannot be autolinked yet can be added manually here, for example:
-              // add(MyReactNativePackage())
-              // register our ImageDecoderPackage to provide a native scaled decoder
-              try {
-                add(ImageDecoderPackage())
-              } catch (_: Exception) {
-                // ignore if registration fails on some build setups
-              }
-              try {
-                add(ColorTFLitePackage())
-              } catch (_: Exception) {
-              }
-              try {
-                add(ColorMatcherPackage())
-              } catch (_: Exception) {
-              }
+        override fun getPackages(): List<ReactPackage> {
+            android.util.Log.d("MainApplication", "Initializing packages...")
+            return PackageList(this).packages.apply {
+                try {
+                    android.util.Log.d("MainApplication", "Adding ImageDecoderPackage...")
+                    add(ImageDecoderPackage())
+                    android.util.Log.d("MainApplication", "Successfully added ImageDecoderPackage")
+                } catch (e: Exception) {
+                    android.util.Log.e("MainApplication", "Failed to add ImageDecoderPackage", e)
+                }
+                
+                try {
+                    android.util.Log.d("MainApplication", "Adding ColorTFLitePackage...")
+                    val tflitePackage = ColorTFLitePackage()
+                    add(tflitePackage)
+                    android.util.Log.d("MainApplication", "Successfully added ColorTFLitePackage")
+                } catch (e: Exception) {
+                    android.util.Log.e("MainApplication", "Failed to add ColorTFLitePackage", e)
+                }
+                
+                try {
+                    android.util.Log.d("MainApplication", "Adding ColorMatcherPackage...")
+                    add(ColorMatcherPackage())
+                    android.util.Log.d("MainApplication", "Successfully added ColorMatcherPackage")
+                } catch (e: Exception) {
+                    android.util.Log.e("MainApplication", "Failed to add ColorMatcherPackage", e)
+                }
+                
+                android.util.Log.d("MainApplication", "All packages initialized. Total packages: ${this.size}")
             }
+        }
 
         override fun getJSMainModuleName(): String = "index"
 

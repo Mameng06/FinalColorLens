@@ -23,13 +23,24 @@ class ColorTFLiteModule(reactContext: ReactApplicationContext) : ReactContextBas
     @ReactMethod
     fun loadModel(callback: Callback) {
         try {
+            val startTime = System.currentTimeMillis()
+            android.util.Log.d("ColorTFLite", "Starting to load color_model.tflite...")
             println("ColorTFLite: Starting to load color_model.tflite...")
+            
             helper.loadModel()
             labelCount = helper.getLabelCount()
-            println("ColorTFLite: Model loaded successfully! Label count: $labelCount")
+            
+            val loadTime = System.currentTimeMillis() - startTime
+            val message = "ColorTFLite: Model loaded successfully! Label count: $labelCount, Load time: ${loadTime}ms"
+            android.util.Log.d("ColorTFLite", message)
+            println(message)
+            
             callback.invoke(null, true)
         } catch (e: Exception) {
-            println("ColorTFLite: Failed to load model - ${e.message}")
+            val errorMsg = "ColorTFLite: Failed to load model - ${e.message}"
+            android.util.Log.e("ColorTFLite", errorMsg, e)
+            println(errorMsg)
+            e.printStackTrace()
             callback.invoke(e.message, null)
         }
     }

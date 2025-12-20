@@ -10,16 +10,19 @@ export const styles = StyleSheet.create({
   },
   colorSwatchContainer: {
     marginBottom: rf(12),
-    alignItems: 'flex-start',
-    justifyContent: 'center',
+    alignItems: 'center',
+    justifyContent: 'flex-start',
     width: '100%',
     flexDirection: 'row',
+    paddingHorizontal: rf(10),
   },
   colorSwatch: {
-    width: rf(70),
-    height: rf(70),
+    width: rf(80),
+    height: rf(80),
     borderRadius: rf(6),
-    borderWidth: 0,
+    borderWidth: 1,
+    borderColor: '#E0E0E0',
+    marginRight: rf(12),
   },
   swatchBox: {
     width: 44,
@@ -30,8 +33,9 @@ export const styles = StyleSheet.create({
     marginRight: 8,
   },
   swatchText: {
-    fontSize: 13,
-    color: '#111',
-    fontWeight: '600',
+    fontSize: rf(16),
+    color: '#333',
+    fontWeight: '500',
+    flex: 1,
   },
 });
